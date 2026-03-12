@@ -238,8 +238,17 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/addadmin [user_id] – 관리자 추가\n"
         "/removeadmin [user_id] – 관리자 제거\n"
         "/admins – 관리자 목록\n"
-        "/notify – 전체 사용자에게 수동 알림 전송\n"
         "/cancel – 진행 중인 작업 취소\n"
+        "\n📢 <b>알림 관리</b>\n"
+        "/sendmorning – 아침 알림 즉시 전체 전송\n"
+        "/sendevening – 저녁 알림 즉시 전체 전송\n"
+        "/notify – 오늘 숙제 수동 전체 전송\n"
+        "/addchannel [@채널 또는 ID] – 채널/그룹 알림 등록\n"
+        "/listchannels – 등록된 채널/그룹 목록\n"
+        "\n🧪 <b>테스트</b>\n"
+        "/testmorning – 아침 알림 미리보기\n"
+        "/testevening – 저녁 알림 미리보기\n"
+        "/testdeadline – 마감 임박 알림 미리보기\n"
     )
 
     footer = "\n\n👨‍💻 <b>제작자 :</b> 막돈방(라스트머니)"
