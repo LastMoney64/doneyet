@@ -1,9 +1,42 @@
 import aiosqlite
+import json
+import os
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import config
 
 DB = config.DATABASE_PATH
+
+
+async def _load_seed():
+    """DB가 비어있을 때 seed_data.json에서 초기 데이터 복원"""
+    seed_path = os.path.join(os.path.dirname(__file__), "seed_data.json")
+    if not os.path.exists(seed_path):
+        return
+    async with aiosqlite.connect(DB) as db:
+        row = await db.execute("SELECT COUNT(*) FROM tasks")
+        count = (await row.fetchone())[0]
+        if count > 0:
+            return  # 이미 데이터 있음
+        with open(seed_path, encoding="utf-8") as f:
+            seed = json.load(f)
+        for t in seed.get("tasks", []):
+            await db.execute(
+                "INSERT OR IGNORE INTO tasks (id,title,description,how_to_do,deadline,prizes,source_url,added_by,added_at,is_active) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (t["id"],t["title"],t.get("description"),t.get("how_to_do"),t.get("deadline"),t.get("prizes"),t.get("source_url"),t.get("added_by"),t.get("added_at"),t.get("is_active",1))
+            )
+        for a in seed.get("admins", []):
+            await db.execute(
+                "INSERT OR IGNORE INTO admins (user_id,username,added_by,added_at) VALUES (?,?,?,?)",
+                (a["user_id"],a.get("username"),a.get("added_by"),a.get("added_at"))
+            )
+        for u in seed.get("users", []):
+            await db.execute(
+                "INSERT OR IGNORE INTO users (user_id,username,first_name,joined_at,notifications_enabled) VALUES (?,?,?,?,?)",
+                (u["user_id"],u.get("username"),u.get("first_name"),u.get("joined_at"),u.get("notifications_enabled",1))
+            )
+        await db.commit()
+        print(f"[seed] {len(seed.get('tasks',[]))}개 숙제 복원 완료")
 
 
 async def init_db():
@@ -49,6 +82,7 @@ async def init_db():
             )
         """)
         await db.commit()
+    await _load_seed()
 
 
 # ─── Admin operations ────────────────────────────────────────────────────────
