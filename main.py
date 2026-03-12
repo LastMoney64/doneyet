@@ -149,27 +149,39 @@ async def handle_bot_added(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     old_status = result.old_chat_member.status
     new_status = result.new_chat_member.status
 
+    chat = result.chat
+
+    # 봇이 제거된 경우 → 알림 대상에서 제거
+    if new_status in ("left", "kicked"):
+        await database.unregister_chat(chat.id)
+        log.info(f"채널/그룹 알림 해제: {chat.id} ({chat.title})")
+        return
+
     # 봇이 새로 추가된 경우만 (left/kicked → member/administrator)
     was_out = old_status in ("left", "kicked")
     is_in   = new_status in ("member", "administrator")
     if not (was_out and is_in):
         return
 
-    chat = result.chat
-    chat_type = "채널" if chat.type == "channel" else "그룹"
+    # 채널/그룹을 알림 대상으로 등록
+    await database.register_chat(chat.id, chat.title or "", chat.type)
+    log.info(f"채널/그룹 알림 등록: {chat.id} ({chat.title})")
+
+    chat_type_kor = "채널" if chat.type == "channel" else "그룹"
 
     text = (
-        f"👋 안녕하세요! *다했니?* 봇입니다.\n\n"
-        f"📚 이 {chat_type}에 추가되었습니다.\n"
+        f"👋 안녕하세요! <b>다했니?</b> 봇입니다.\n\n"
+        f"📚 이 {chat_type_kor}에 추가되었습니다.\n"
         "숙제/퀘스트 마감을 잊지 않도록 도와드릴게요!\n\n"
-        "📌 *사용 가능한 명령어*\n"
+        "📌 <b>사용 가능한 명령어</b>\n"
         "/tasks – 전체 숙제 목록\n"
         "/today – 오늘 마감 숙제\n"
         "/urgent – 마감 임박 숙제\n"
-        "/task `[ID]` – 숙제 상세 보기\n"
+        "/task [ID] – 숙제 상세 보기\n"
         "/on – 알림 켜기 · /off – 알림 끄기\n\n"
-        "💡 숙제 등록은 관리자가 *봇에게 DM*으로 링크나 텍스트를 보내면 됩니다.\n\n"
-        "✍️ *제작자: 막돈방(라스트머니)*"
+        "🔔 이 채널에 매일 아침 9시, 저녁 10시 알림이 자동 발송됩니다.\n\n"
+        "💡 숙제 등록은 관리자가 <b>봇에게 DM</b>으로 링크나 텍스트를 보내면 됩니다.\n\n"
+        "✍️ <i>제작자: 막돈방(라스트머니)</i>"
     )
 
     try:

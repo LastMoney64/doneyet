@@ -81,9 +81,16 @@ async def init_db():
                 username              TEXT,
                 first_name            TEXT,
                 joined_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                notifications_enabled INTEGER DEFAULT 1
+                notifications_enabled INTEGER DEFAULT 1,
+                chat_type             TEXT DEFAULT 'private'
             )
         """)
+        # 기존 DB에 chat_type 컬럼이 없으면 추가
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN chat_type TEXT DEFAULT 'private'")
+            await db.commit()
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notifications_sent (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -248,10 +255,28 @@ async def get_tasks_for_deadline_check(low_hours: float, high_hours: float) -> L
 async def register_user(user_id: int, username: str, first_name: str):
     async with aiosqlite.connect(DB) as db:
         await db.execute(
-            """INSERT OR IGNORE INTO users (user_id, username, first_name)
-               VALUES (?, ?, ?)""",
+            """INSERT OR IGNORE INTO users (user_id, username, first_name, chat_type)
+               VALUES (?, ?, ?, 'private')""",
             (user_id, username or "", first_name or ""),
         )
+        await db.commit()
+
+
+async def register_chat(chat_id: int, chat_title: str, chat_type: str):
+    """그룹/채널을 알림 대상으로 등록"""
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            """INSERT OR IGNORE INTO users (user_id, username, first_name, chat_type, notifications_enabled)
+               VALUES (?, ?, ?, ?, 1)""",
+            (chat_id, "", chat_title or "", chat_type),
+        )
+        await db.commit()
+
+
+async def unregister_chat(chat_id: int):
+    """그룹/채널을 알림 대상에서 제거"""
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM users WHERE user_id = ?", (chat_id,))
         await db.commit()
 
 
