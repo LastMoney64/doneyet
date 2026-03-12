@@ -836,4 +836,8 @@ def main():
 
 
 if __name__ == "__main__":
+    import threading
+    import auto_push
+    t = threading.Thread(target=auto_push.watch, daemon=True)
+    t.start()
     main()

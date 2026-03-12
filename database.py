@@ -8,6 +8,18 @@ import config
 DB = config.DATABASE_PATH
 
 
+async def _export_seed():
+    """현재 DB 상태를 seed_data.json에 저장 (자동 백업)"""
+    seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_data.json")
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        tasks  = [dict(r) for r in await (await db.execute("SELECT * FROM tasks")).fetchall()]
+        admins = [dict(r) for r in await (await db.execute("SELECT * FROM admins")).fetchall()]
+        users  = [dict(r) for r in await (await db.execute("SELECT * FROM users")).fetchall()]
+    with open(seed_path, "w", encoding="utf-8") as f:
+        json.dump({"tasks": tasks, "admins": admins, "users": users}, f, ensure_ascii=False, indent=2, default=str)
+
+
 async def _load_seed():
     """DB가 비어있을 때 seed_data.json에서 초기 데이터 복원"""
     seed_path = os.path.join(os.path.dirname(__file__), "seed_data.json")
@@ -142,13 +154,16 @@ async def add_task(
             (title, description, how_to_do, deadline_str, prizes, source_url, added_by),
         )
         await db.commit()
-        return cur.lastrowid
+        task_id = cur.lastrowid
+    await _export_seed()
+    return task_id
 
 
 async def delete_task(task_id: int):
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE tasks SET is_active = 0 WHERE id = ?", (task_id,))
         await db.commit()
+    await _export_seed()
 
 
 async def update_task_field(task_id: int, field: str, value):
@@ -159,6 +174,7 @@ async def update_task_field(task_id: int, field: str, value):
     async with aiosqlite.connect(DB) as db:
         await db.execute(f"UPDATE tasks SET {field} = ? WHERE id = ?", (value, task_id))
         await db.commit()
+    await _export_seed()
 
 
 async def get_task_by_id(task_id: int) -> Optional[Dict]:
