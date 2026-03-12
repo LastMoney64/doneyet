@@ -399,6 +399,54 @@ async def cmd_notify(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ {sent}명에게 알림을 보냈습니다.")
 
 
+async def cmd_send_evening(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """저녁 알림을 지금 즉시 전체 전송"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+
+    from scheduler import _build_daily_message
+    message = await _build_daily_message("🌙", "✅ 오늘 숙제 잊지 말고 마무리하세요!")
+    users = await database.get_all_users()
+    sent, fail = 0, 0
+    for user in users:
+        try:
+            await ctx.bot.send_message(
+                chat_id=user["user_id"], text=message, parse_mode=ParseMode.HTML
+            )
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            fail += 1
+            log.warning(f"[sendevening] {user['user_id']} 실패: {e}")
+    await update.message.reply_text(f"✅ 저녁 알림 전송 완료\n📤 성공: {sent}개  ❌ 실패: {fail}개")
+
+
+async def cmd_send_morning(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """아침 알림을 지금 즉시 전체 전송"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+
+    from scheduler import _build_daily_message
+    message = await _build_daily_message("🌅", "💪 오늘도 화이팅!")
+    users = await database.get_all_users()
+    sent, fail = 0, 0
+    for user in users:
+        try:
+            await ctx.bot.send_message(
+                chat_id=user["user_id"], text=message, parse_mode=ParseMode.HTML
+            )
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            fail += 1
+            log.warning(f"[sendmorning] {user['user_id']} 실패: {e}")
+    await update.message.reply_text(f"✅ 아침 알림 전송 완료\n📤 성공: {sent}개  ❌ 실패: {fail}개")
+
+
 # ─── Admin: test alarm commands ──────────────────────────────────────────────
 
 async def cmd_test_morning(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -809,6 +857,8 @@ def main():
     app.add_handler(CommandHandler("admins", cmd_admins))
     app.add_handler(CommandHandler("deltask", cmd_deltask))
     app.add_handler(CommandHandler("notify", cmd_notify))
+    app.add_handler(CommandHandler("sendmorning", cmd_send_morning))
+    app.add_handler(CommandHandler("sendevening", cmd_send_evening))
     app.add_handler(CommandHandler("testmorning", cmd_test_morning))
     app.add_handler(CommandHandler("testevening", cmd_test_evening))
     app.add_handler(CommandHandler("testdeadline", cmd_test_deadline))
