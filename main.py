@@ -735,6 +735,83 @@ async def _handle_edit_wizard(update: Update, u, text: str):
     )
 
 
+async def handle_forwarded_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """채널 메시지를 포워드하면 채널 ID를 알려주고 등록 제안"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        return
+
+    msg = update.message
+    chat_id, chat_title, chat_type = None, None, None
+
+    # 채널에서 포워드된 경우
+    if msg.forward_origin and hasattr(msg.forward_origin, "chat"):
+        origin_chat = msg.forward_origin.chat
+        chat_id = origin_chat.id
+        chat_title = origin_chat.title or "(이름없음)"
+        chat_type = origin_chat.type
+    elif msg.forward_from_chat:
+        chat_id = msg.forward_from_chat.id
+        chat_title = msg.forward_from_chat.title or "(이름없음)"
+        chat_type = msg.forward_from_chat.type
+
+    if not chat_id:
+        return
+
+    # 이미 등록 여부 확인
+    all_users = await database.get_all_users()
+    already = any(x["user_id"] == chat_id for x in all_users)
+
+    if already:
+        await msg.reply_text(
+            f"✅ 이미 알림 대상으로 등록된 채널입니다.\n"
+            f"📌 <b>{chat_title}</b>  (<code>{chat_id}</code>)",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ 등록", callback_data=f"regchat:{chat_id}:{chat_type}"),
+        InlineKeyboardButton("❌ 취소", callback_data="regchat:cancel"),
+    ]])
+    await msg.reply_text(
+        f"📢 포워드된 채널 감지!\n\n"
+        f"📌 이름: <b>{chat_title}</b>\n"
+        f"🆔 ID: <code>{chat_id}</code>\n"
+        f"유형: {chat_type}\n\n"
+        f"이 채널을 알림 대상으로 등록할까요?",
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard
+    )
+    # 채널 제목 임시 저장
+    ctx.bot_data[f"regchat_{chat_id}"] = chat_title
+
+
+async def callback_regchat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """채널 등록 콜백"""
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # "regchat:{chat_id}:{chat_type}" or "regchat:cancel"
+
+    if data == "regchat:cancel":
+        await query.edit_message_text("❌ 등록을 취소했습니다.")
+        return
+
+    parts = data.split(":")
+    chat_id = int(parts[1])
+    chat_type = parts[2]
+    chat_title = ctx.bot_data.pop(f"regchat_{chat_id}", "(이름없음)")
+
+    await database.register_chat(chat_id, chat_title, chat_type)
+    await query.edit_message_text(
+        f"✅ 채널 등록 완료!\n"
+        f"📌 <b>{chat_title}</b>  (<code>{chat_id}</code>)\n\n"
+        f"이제 매일 아침/저녁 알림이 해당 채널로 전송됩니다.",
+        parse_mode=ParseMode.HTML
+    )
+
+
 async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """관리자가 링크 또는 텍스트를 보내면 Claude로 분석 후 확인 요청"""
     u = update.effective_user
@@ -743,6 +820,13 @@ async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     await ensure_registered(update)
+
+    # 포워드된 메시지면 채널 등록 핸들러로
+    msg = update.message
+    if msg.forward_origin or msg.forward_from_chat:
+        await handle_forwarded_channel(update, ctx)
+        return
+
     text = update.message.text.strip()
     if not text:
         return
@@ -936,6 +1020,7 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_tasks_page, pattern=r"^tasks_page:\d+$"))
     app.add_handler(CallbackQueryHandler(callback_editfield, pattern=r"^editfield:\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(callback_confirm, pattern=r"^confirm_(add|cancel):\d+$"))
+    app.add_handler(CallbackQueryHandler(callback_regchat, pattern=r"^regchat:"))
 
     # JobQueue 스케줄러 (봇 내장 – asyncio 이벤트 루프와 통합됨)
     import datetime as dt
