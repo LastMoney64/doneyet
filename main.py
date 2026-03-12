@@ -350,6 +350,53 @@ async def cmd_admins(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
+async def cmd_addchannel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """채널/그룹을 알림 대상으로 수동 등록. 사용법: /addchannel @채널명 또는 /addchannel -100xxxxxxxxx"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    args = ctx.args
+    if not args:
+        await update.message.reply_text(
+            "사용법: /addchannel @채널유저명 또는 /addchannel -100xxxxxxxxx\n\n"
+            "채널 ID를 모르면 채널에서 아무 메시지나 봇에게 포워드해주세요."
+        )
+        return
+    target = args[0]
+    try:
+        chat = await ctx.bot.get_chat(target)
+        await database.register_chat(chat.id, chat.title or target, chat.type)
+        await update.message.reply_text(
+            f"✅ 채널/그룹 등록 완료!\n"
+            f"📌 이름: <b>{chat.title}</b>\n"
+            f"🆔 ID: <code>{chat.id}</code>",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ 등록 실패: {e}\n\n"
+            "봇이 해당 채널의 관리자인지 확인해주세요."
+        )
+
+
+async def cmd_listchannels(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """등록된 채널/그룹 목록 보기"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    users = await database.get_all_users()
+    channels = [x for x in users if x.get("chat_type") in ("channel", "group", "supergroup")]
+    privates = [x for x in users if x.get("chat_type") == "private"]
+    lines = [f"📋 <b>알림 대상 현황</b>\n"]
+    lines.append(f"👤 개인 유저: {len(privates)}명")
+    lines.append(f"📢 채널/그룹: {len(channels)}개\n")
+    for c in channels:
+        lines.append(f"• <b>{c.get('first_name','(이름없음)')}</b>  <code>{c['user_id']}</code>")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
 async def cmd_deltask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     if not await is_admin(u.id):
@@ -855,6 +902,8 @@ def main():
     app.add_handler(CommandHandler("addadmin", cmd_addadmin))
     app.add_handler(CommandHandler("removeadmin", cmd_removeadmin))
     app.add_handler(CommandHandler("admins", cmd_admins))
+    app.add_handler(CommandHandler("addchannel", cmd_addchannel))
+    app.add_handler(CommandHandler("listchannels", cmd_listchannels))
     app.add_handler(CommandHandler("deltask", cmd_deltask))
     app.add_handler(CommandHandler("notify", cmd_notify))
     app.add_handler(CommandHandler("sendmorning", cmd_send_morning))
