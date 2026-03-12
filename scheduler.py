@@ -5,10 +5,18 @@ Scheduler jobs – uses python-telegram-bot's built-in JobQueue
 
 import asyncio
 from datetime import datetime
+import zoneinfo
 from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 import database
+import config
+
+KST = zoneinfo.ZoneInfo(config.TIMEZONE)
+
+
+def now_kst() -> datetime:
+    return datetime.now(KST)
 
 
 # ─── Message formatters ───────────────────────────────────────────────────────
@@ -95,7 +103,7 @@ SEP = "─" * 24
 
 async def _build_daily_message(prefix_emoji: str, suffix_msg: str) -> str:
     """아침/저녁 공용 메시지 빌더"""
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = now_kst().strftime("%Y-%m-%d")
     today_tasks = await database.get_today_tasks()
     all_tasks = await database.get_all_tasks()
 
@@ -121,7 +129,7 @@ async def _build_daily_message(prefix_emoji: str, suffix_msg: str) -> str:
 
 async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
     """매일 아침 9시 오늘의 숙제 리스트 전송"""
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = now_kst().strftime("%Y-%m-%d")
     ntype = f"morning_{today_str}"
     users = await database.get_all_users()
     if not users:
@@ -143,7 +151,7 @@ async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
 
 async def job_evening_notification(context: ContextTypes.DEFAULT_TYPE):
     """매일 저녁 10시 오늘의 숙제 리스트 전송"""
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = now_kst().strftime("%Y-%m-%d")
     ntype = f"evening_{today_str}"
     users = await database.get_all_users()
     if not users:
@@ -165,7 +173,7 @@ async def job_evening_notification(context: ContextTypes.DEFAULT_TYPE):
 
 async def job_deadline_reminders(context: ContextTypes.DEFAULT_TYPE):
     """마감 3시간, 2시간, 1시간 전 알림"""
-    now = datetime.now()
+    now = now_kst()
     users = await database.get_all_users()
     if not users:
         return
