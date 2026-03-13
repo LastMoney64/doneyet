@@ -840,18 +840,24 @@ async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await _handle_edit_wizard(update, u, text)
         return
 
-    await update.message.reply_text("🔍 내용을 분석하는 중입니다... 잠시만 기다려주세요.")
+    analyzing_msg = await update.message.reply_text("🔍 내용을 분석하는 중입니다... 잠시만 기다려주세요.")
 
-    result = await analyzer.analyze_input(text)
+    try:
+        result = await analyzer.analyze_input(text)
+    except Exception as e:
+        log.error(f"[analyze] API 오류: {e}")
+        await analyzing_msg.edit_text(f"❌ 분석 중 오류가 발생했습니다.\n<code>{e}</code>", parse_mode=ParseMode.HTML)
+        return
 
     if not result or not result.get("is_valid"):
         err = result.get("error", "숙제/퀘스트 내용을 찾을 수 없습니다.") if result else "분석 실패"
-        await update.message.reply_text(f"❌ {err}\n\n숙제/퀘스트 내용이 포함된 링크나 텍스트를 보내주세요.")
+        await analyzing_msg.edit_text(f"❌ {err}\n\n숙제/퀘스트 내용이 포함된 링크나 텍스트를 보내주세요.")
         return
 
     pending_tasks[u.id] = result
     preview = fmt_task_preview(result)
     try:
+        await analyzing_msg.delete()
         await update.message.reply_text(
             preview,
             parse_mode=ParseMode.HTML,
@@ -860,7 +866,8 @@ async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log.error(f"[analyze preview] send failed: {e}")
         await update.message.reply_text(
-            "⚠️ 미리보기 전송 중 오류가 발생했습니다. 다시 시도해 주세요."
+            f"⚠️ 미리보기 전송 중 오류가 발생했습니다.\n<code>{e}</code>",
+            parse_mode=ParseMode.HTML
         )
 
 
