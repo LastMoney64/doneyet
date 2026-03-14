@@ -215,6 +215,30 @@
   ],
   "users": [
     {
+      "user_id": -1003038664361,
+      "username": "",
+      "first_name": "크립토언니 수다주막",
+      "joined_at": "2026-03-14 01:16:31",
+      "notifications_enabled": 1,
+      "chat_type": "supergroup"
+    },
+    {
+      "user_id": -1002761645057,
+      "username": "",
+      "first_name": "리도스 채팅방",
+      "joined_at": "2026-03-14 01:16:31",
+      "notifications_enabled": 1,
+      "chat_type": "supergroup"
+    },
+    {
+      "user_id": -1002732977079,
+      "username": "",
+      "first_name": "동탄 야핑 실직자 모임",
+      "joined_at": "2026-03-14 01:16:31",
+      "notifications_enabled": 1,
+      "chat_type": "supergroup"
+    },
+    {
       "user_id": -1001806764882,
       "username": "",
       "first_name": "막돈방 Chat",
