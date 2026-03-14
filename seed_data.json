@@ -215,6 +215,22 @@
   ],
   "users": [
     {
+      "user_id": -1001806764882,
+      "username": "",
+      "first_name": "막돈방 Chat",
+      "joined_at": "2026-03-14 01:07:00",
+      "notifications_enabled": 1,
+      "chat_type": "supergroup"
+    },
+    {
+      "user_id": -1001678418089,
+      "username": "",
+      "first_name": "막돈방🦅",
+      "joined_at": "2026-03-14 01:07:00",
+      "notifications_enabled": 1,
+      "chat_type": "channel"
+    },
+    {
       "user_id": 461007845,
       "username": "JohnBur609",
       "first_name": "사냥🍯",
