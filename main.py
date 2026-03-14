@@ -248,6 +248,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/sendmorning – 아침 알림 즉시 전체 전송\n"
         "/sendevening – 저녁 알림 즉시 전체 전송\n"
         "/notify – 오늘 숙제 수동 전체 전송\n"
+        "/broadcast – 자유 공지 전체 채널 배포\n"
         "/addchannel [@채널 또는 ID] – 채널/그룹 알림 등록\n"
         "/listchannels – 등록된 채널/그룹 목록\n"
         "\n🧪 <b>테스트</b>\n"
@@ -458,6 +459,40 @@ async def cmd_notify(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
     await update.message.reply_text(f"✅ {sent}명에게 알림을 보냈습니다.")
+
+
+async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """관리자가 자유 텍스트를 전체 사용자/채널에 브로드캐스트"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+
+    # 명령어 뒤 텍스트 확인
+    text = " ".join(ctx.args).strip() if ctx.args else ""
+    if not text:
+        # wizard 방식으로 메시지 입력 받기
+        wizard_state[u.id] = {"mode": "broadcast"}
+        await update.message.reply_text(
+            "📢 *전체 공지 모드*\n\n전송할 메시지를 입력해주세요.\n취소하려면 /cancel 입력",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    await _do_broadcast(update, ctx, text)
+
+
+async def _do_broadcast(update, ctx, text: str):
+    users = await database.get_all_users()
+    sent, fail = 0, 0
+    for user in users:
+        try:
+            await ctx.bot.send_message(chat_id=user["user_id"], text=text)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            fail += 1
+    await update.message.reply_text(f"✅ 전송 완료!\n📨 성공: {sent}개  ❌ 실패: {fail}개")
 
 
 async def cmd_send_evening(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -843,6 +878,9 @@ async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await _handle_add_wizard(update, u, text)
         elif state["mode"] == "edit":
             await _handle_edit_wizard(update, u, text)
+        elif state["mode"] == "broadcast":
+            wizard_state.pop(u.id)
+            await _do_broadcast(update, ctx, text)
         return
 
     analyzing_msg = await update.message.reply_text("🔍 내용을 분석하는 중입니다... 잠시만 기다려주세요.")
@@ -1011,6 +1049,7 @@ def main():
     app.add_handler(CommandHandler("listchannels", cmd_listchannels))
     app.add_handler(CommandHandler("deltask", cmd_deltask))
     app.add_handler(CommandHandler("notify", cmd_notify))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("sendmorning", cmd_send_morning))
     app.add_handler(CommandHandler("sendevening", cmd_send_evening))
     app.add_handler(CommandHandler("testmorning", cmd_test_morning))
