@@ -468,8 +468,11 @@ async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
         return
 
-    # 명령어 뒤 텍스트 확인
-    text = " ".join(ctx.args).strip() if ctx.args else ""
+    # 명령어 뒤 텍스트를 원문 그대로 추출 (줄바꿈 보존)
+    raw = update.message.text or ""
+    # "/broadcast" 또는 "/broadcast@botname" 부분만 제거
+    text = raw.split(None, 1)[1].strip() if len(raw.split(None, 1)) > 1 else ""
+
     if not text:
         # wizard 방식으로 메시지 입력 받기
         wizard_state[u.id] = {"mode": "broadcast"}
