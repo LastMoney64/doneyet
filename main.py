@@ -55,7 +55,12 @@ EDIT_FIELDS = {
 
 async def ensure_registered(update: Update):
     u = update.effective_user
-    await database.register_user(u.id, u.username or "", u.first_name or "")
+    if u:
+        await database.register_user(u.id, u.username or "", u.first_name or "")
+    # 그룹/채널에서 명령어 사용 시 해당 채팅방도 알림 대상으로 자동 등록
+    chat = update.effective_chat
+    if chat and chat.type in ("group", "supergroup", "channel"):
+        await database.register_chat(chat.id, chat.title or "", chat.type)
 
 
 async def is_admin(user_id: int) -> bool:

@@ -210,7 +210,7 @@
       "user_id": 1668479932,
       "username": "super_admin",
       "added_by": 1668479932,
-      "added_at": "2026-03-11 16:14:11"
+      "added_at": "2026-03-12 13:13:20"
     }
   ],
   "users": [
@@ -219,49 +219,56 @@
       "username": "JohnBur609",
       "first_name": "사냥🍯",
       "joined_at": "2026-03-11 16:25:43",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     },
     {
       "user_id": 1463772891,
       "username": "gwakys",
       "first_name": "GGwak .grvt🍏",
       "joined_at": "2026-03-11 18:34:48",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     },
     {
       "user_id": 1668479932,
       "username": "lastmoney64",
       "first_name": "LastMoney",
       "joined_at": "2026-03-11 10:23:20",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     },
     {
       "user_id": 1776890621,
       "username": "ad5938",
       "first_name": "hhp",
       "joined_at": "2026-03-11 16:35:17",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     },
     {
       "user_id": 2031225162,
       "username": "coinshoott",
       "first_name": "코인슛",
       "joined_at": "2026-03-11 16:25:33",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     },
     {
       "user_id": 5255556421,
       "username": "gemhive99",
       "first_name": "젬하",
       "joined_at": "2026-03-11 13:32:52",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     },
     {
       "user_id": 8272327739,
       "username": "fucucuu3",
       "first_name": "🎮MGG F4U.grvt🍏",
       "joined_at": "2026-03-11 16:50:09",
-      "notifications_enabled": 1
+      "notifications_enabled": 1,
+      "chat_type": "private"
     }
   ]
 }
