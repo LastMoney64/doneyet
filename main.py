@@ -631,12 +631,12 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 ADD_STEPS = ["title", "description", "how_to_do", "deadline", "prizes", "source_url"]
 ADD_PROMPTS = {
-    "title":       "📌 *제목*을 입력하세요.",
-    "description": "📝 *설명*을 입력하세요.\n(없으면 `-` 입력)",
-    "how_to_do":   "📋 *참여 방법*을 입력하세요.\n(없으면 `-` 입력)",
-    "deadline":    "⏰ *마감 날짜*를 입력하세요.\n형식: `YYYY-MM-DD HH:MM` (예: 2026-03-15 23:59)\n(없으면 `-` 입력)",
-    "prizes":      "🏆 *상품*을 입력하세요.\n(없으면 `-` 입력)",
-    "source_url":  "🔗 *출처 링크*를 입력하세요.\n(없으면 `-` 입력)",
+    "title":       "📌 <b>제목</b>을 입력하세요.",
+    "description": "📝 <b>설명</b>을 입력하세요.\n(없으면 <code>-</code> 입력)",
+    "how_to_do":   "📋 <b>참여 방법</b>을 입력하세요.\n(없으면 <code>-</code> 입력)",
+    "deadline":    "⏰ <b>마감 날짜</b>를 입력하세요.\n형식: <code>YYYY-MM-DD HH:MM</code> (예: 2026-03-15 23:59)\n(없으면 <code>-</code> 입력)",
+    "prizes":      "🏆 <b>상품</b>을 입력하세요.\n(없으면 <code>-</code> 입력)",
+    "source_url":  "🔗 <b>출처 링크</b>를 입력하세요.\n(없으면 <code>-</code> 입력)",
 }
 
 
@@ -647,7 +647,7 @@ async def cmd_addtask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     wizard_state[u.id] = {"mode": "add", "step": "title", "data": {}}
     await update.message.reply_text(
-        "✍️ *수동 숙제 등록을 시작합니다.*\n\n" + ADD_PROMPTS["title"],
+        "✍️ <b>수동 숙제 등록을 시작합니다.</b>\n\n" + ADD_PROMPTS["title"],
         parse_mode=ParseMode.HTML,
     )
 
@@ -709,7 +709,11 @@ async def _handle_add_wizard(update: Update, u, text: str):
     if idx + 1 < len(ADD_STEPS):
         next_step = ADD_STEPS[idx + 1]
         state["step"] = next_step
-        await update.message.reply_text(ADD_PROMPTS[next_step], parse_mode=ParseMode.HTML)
+        try:
+            await update.message.reply_text(ADD_PROMPTS[next_step], parse_mode=ParseMode.HTML)
+        except Exception as e:
+            log.error(f"[wizard] 프롬프트 전송 실패 step={next_step}: {e}")
+            await update.message.reply_text(f"⚠️ 오류: {e}\n다시 입력해 주세요.")
     else:
         # 모든 필드 입력 완료 → 미리보기 + 확인
         wizard_state.pop(u.id)
