@@ -64,6 +64,8 @@ async def ensure_registered(update: Update):
 
 
 async def is_admin(user_id: int) -> bool:
+    if config.SUPER_ADMIN_ID and user_id == config.SUPER_ADMIN_ID:
+        return True
     return await database.is_admin(user_id)
 
 
@@ -862,8 +864,8 @@ async def callback_regchat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """관리자가 링크 또는 텍스트를 보내면 Claude로 분석 후 확인 요청"""
     u = update.effective_user
+    log.info(f"[msg] user={u.id} admin={await is_admin(u.id)}")
     if not await is_admin(u.id):
-        # Not admin – silently ignore (commands will handle non-admin feedback)
         return
 
     await ensure_registered(update)
