@@ -864,21 +864,12 @@ async def callback_regchat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """관리자가 링크 또는 텍스트를 보내면 Claude로 분석 후 확인 요청"""
     u = update.effective_user
-    log.info(f"[msg] user={u.id} admin={await is_admin(u.id)}")
     if not await is_admin(u.id):
         return
 
     await ensure_registered(update)
 
-    # 실제 포워드된 메시지면 채널 등록 핸들러로
-    # (링크 프리뷰는 forward_from_chat만 설정되고 forward_date는 없음 → 분석으로 처리)
-    msg = update.message
-    is_forwarded = bool(msg.forward_date or msg.forward_origin)
-    if is_forwarded and (msg.forward_origin or msg.forward_from_chat):
-        await handle_forwarded_channel(update, ctx)
-        return
-
-    text = update.message.text.strip()
+    text = (update.message.text or "").strip()
     if not text:
         return
 
@@ -1070,9 +1061,13 @@ def main():
     app.add_handler(CommandHandler("edittask", cmd_edittask))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
 
-    # Admin: free text / URL analysis – DM(개인 채팅)에서만 동작
+    # Admin: 포워드된 메시지 → 채널 등록 (포워드 메시지만 처리)
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_admin_message)
+        MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded_channel)
+    )
+    # Admin: 일반 텍스트/링크 → Claude 분석 (포워드 제외)
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.FORWARDED & filters.ChatType.PRIVATE, handle_admin_message)
     )
 
     # 봇이 그룹/채널에 추가됐을 때 인사말
