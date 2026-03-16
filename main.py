@@ -870,9 +870,11 @@ async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await ensure_registered(update)
 
-    # 포워드된 메시지면 채널 등록 핸들러로
+    # 실제 포워드된 메시지면 채널 등록 핸들러로
+    # (링크 프리뷰는 forward_from_chat만 설정되고 forward_date는 없음 → 분석으로 처리)
     msg = update.message
-    if msg.forward_origin or msg.forward_from_chat:
+    is_forwarded = bool(msg.forward_date or msg.forward_origin)
+    if is_forwarded and (msg.forward_origin or msg.forward_from_chat):
         await handle_forwarded_channel(update, ctx)
         return
 
