@@ -9,13 +9,21 @@ DB = config.DATABASE_PATH
 
 
 async def _export_seed():
-    """현재 DB 상태를 seed_data.json에 저장 (자동 백업)"""
+    """현재 DB 상태를 seed_data.json에 저장 (자동 백업)
+    활성 숙제가 0개면 기존 seed를 보호하기 위해 덮어쓰지 않음"""
     seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_data.json")
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         tasks  = [dict(r) for r in await (await db.execute("SELECT * FROM tasks")).fetchall()]
         admins = [dict(r) for r in await (await db.execute("SELECT * FROM admins")).fetchall()]
         users  = [dict(r) for r in await (await db.execute("SELECT * FROM users")).fetchall()]
+
+    # 활성 숙제가 없으면 기존 seed 보호 (빈 DB가 정상 데이터를 덮어쓰는 것 방지)
+    active_count = sum(1 for t in tasks if t.get("is_active"))
+    if active_count == 0:
+        print("[seed] 활성 숙제 없음 – seed_data.json 덮어쓰기 건너뜀")
+        return
+
     with open(seed_path, "w", encoding="utf-8") as f:
         json.dump({"tasks": tasks, "admins": admins, "users": users}, f, ensure_ascii=False, indent=2, default=str)
 
