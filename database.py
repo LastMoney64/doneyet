@@ -294,23 +294,27 @@ async def get_tasks_for_deadline_check(low_hours: float, high_hours: float) -> L
 
 async def register_user(user_id: int, username: str, first_name: str):
     async with aiosqlite.connect(DB) as db:
-        await db.execute(
+        cur = await db.execute(
             """INSERT OR IGNORE INTO users (user_id, username, first_name, chat_type)
                VALUES (?, ?, ?, 'private')""",
             (user_id, username or "", first_name or ""),
         )
         await db.commit()
+        if cur.rowcount > 0:  # 새로 등록된 경우만 백업
+            await _export_seed()
 
 
 async def register_chat(chat_id: int, chat_title: str, chat_type: str):
     """그룹/채널을 알림 대상으로 등록"""
     async with aiosqlite.connect(DB) as db:
-        await db.execute(
+        cur = await db.execute(
             """INSERT OR IGNORE INTO users (user_id, username, first_name, chat_type, notifications_enabled)
                VALUES (?, ?, ?, ?, 1)""",
             (chat_id, "", chat_title or "", chat_type),
         )
         await db.commit()
+        if cur.rowcount > 0:
+            await _export_seed()
 
 
 async def unregister_chat(chat_id: int):
@@ -318,6 +322,7 @@ async def unregister_chat(chat_id: int):
     async with aiosqlite.connect(DB) as db:
         await db.execute("DELETE FROM users WHERE user_id = ?", (chat_id,))
         await db.commit()
+    await _export_seed()
 
 
 async def get_all_users() -> List[Dict]:
