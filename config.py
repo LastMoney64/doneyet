@@ -13,4 +13,4 @@ MORNING_HOUR = int(os.getenv("MORNING_HOUR", "9"))
 MORNING_MINUTE = int(os.getenv("MORNING_MINUTE", "0"))
 EVENING_HOUR = int(os.getenv("EVENING_HOUR", "22"))
 EVENING_MINUTE = int(os.getenv("EVENING_MINUTE", "0"))
-DATABASE_PATH = "donyet.db"
+DATABASE_PATH = os.getenv("DATABASE_PATH", "donyet.db")
