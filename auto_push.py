@@ -1,14 +1,22 @@
 """
-seed_data.json 변경 감지 시 자동으로 GitHub에 push
-GITHUB_TOKEN 환경변수를 사용해 Railway에서도 동작합니다.
+seed_data.json 변경 감지 시 GitHub API로 직접 업로드
+git 설치 없이 Railway에서도 동작합니다.
 """
 import time
-import subprocess
 import os
 import hashlib
+import base64
+import json
+
+try:
+    import requests
+except ImportError:
+    requests = None
 
 SEED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_data.json")
-REPO = "LastMoney64/doneyet"
+REPO      = "LastMoney64/doneyet"
+FILE_PATH = "seed_data.json"
+API_URL   = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
 
 
 def file_hash(path):
@@ -19,55 +27,57 @@ def file_hash(path):
         return None
 
 
-def git_push():
-    repo_dir = os.path.dirname(os.path.abspath(__file__))
+def github_push():
+    if requests is None:
+        print("[auto_push] requests 모듈 없음, 스킵")
+        return
+
     token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        print("[auto_push] GITHUB_TOKEN 없음, 스킵")
+        return
 
     try:
-        # 토큰이 있으면 remote URL에 인증 포함
-        if token:
-            remote_url = f"https://{token}@github.com/{REPO}.git"
-            subprocess.run(
-                ["git", "remote", "set-url", "origin", remote_url],
-                cwd=repo_dir, check=True, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.email", "bot@doneyet.app"],
-                cwd=repo_dir, capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "DoneYet Bot"],
-                cwd=repo_dir, capture_output=True
-            )
+        with open(SEED_PATH, "r", encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        print("[auto_push] seed_data.json 없음, 스킵")
+        return
 
-        subprocess.run(["git", "add", "seed_data.json"], cwd=repo_dir, check=True, capture_output=True)
-        result = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            cwd=repo_dir, capture_output=True
-        )
-        if result.returncode == 0:
-            return  # 변경 없음
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
 
-        subprocess.run(
-            ["git", "commit", "-m", "auto: update seed_data.json"],
-            cwd=repo_dir, check=True, capture_output=True
-        )
-        subprocess.run(["git", "push", "origin", "main"],
-                       cwd=repo_dir, check=True, capture_output=True)
-        print("[auto_push] seed_data.json → GitHub push 완료")
-    except subprocess.CalledProcessError as e:
-        print(f"[auto_push] push 실패: {e.stderr.decode() if e.stderr else e}")
+    # 현재 파일의 SHA 조회 (업데이트 시 필요)
+    r = requests.get(API_URL, headers=headers, timeout=15)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+
+    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+    payload = {
+        "message": "auto: update seed_data.json",
+        "content": encoded,
+        "branch":  "main",
+    }
+    if sha:
+        payload["sha"] = sha
+
+    r = requests.put(API_URL, headers=headers, json=payload, timeout=15)
+    if r.status_code in (200, 201):
+        print("[auto_push] seed_data.json → GitHub 업데이트 완료")
+    else:
+        print(f"[auto_push] 업데이트 실패: {r.status_code} {r.text[:200]}")
 
 
 def watch():
-    print("[auto_push] seed_data.json 감시 시작")
+    print("[auto_push] seed_data.json 감시 시작 (GitHub API 방식)")
     last_hash = file_hash(SEED_PATH)
     while True:
         time.sleep(10)
         current_hash = file_hash(SEED_PATH)
         if current_hash and current_hash != last_hash:
             last_hash = current_hash
-            git_push()
+            github_push()
 
 
 if __name__ == "__main__":
