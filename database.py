@@ -40,12 +40,21 @@ async def _load_seed():
         row = await db.execute("SELECT COUNT(*) FROM tasks")
         count = (await row.fetchone())[0]
         if count == 0:
+            from datetime import datetime
+            now = datetime.now().isoformat()
+            restored = 0
             for t in seed.get("tasks", []):
+                # 이미 만료됐거나 비활성 숙제는 복원 제외
+                if not t.get("is_active", 1):
+                    continue
+                if t.get("deadline") and str(t["deadline"]) < now:
+                    continue
                 await db.execute(
                     "INSERT OR IGNORE INTO tasks (id,title,description,how_to_do,deadline,prizes,source_url,added_by,added_at,is_active) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (t["id"],t["title"],t.get("description"),t.get("how_to_do"),t.get("deadline"),t.get("prizes"),t.get("source_url"),t.get("added_by"),t.get("added_at"),t.get("is_active",1))
+                    (t["id"],t["title"],t.get("description"),t.get("how_to_do"),t.get("deadline"),t.get("prizes"),t.get("source_url"),t.get("added_by"),t.get("added_at"),1)
                 )
-            print(f"[seed] {len(seed.get('tasks',[]))}개 숙제 복원 완료")
+                restored += 1
+            print(f"[seed] {restored}개 유효 숙제 복원 완료 (만료 제외)")
         # admins/users: 항상 머지 (INSERT OR IGNORE → 기존 데이터 유지, 새 항목만 추가)
         for a in seed.get("admins", []):
             await db.execute(
