@@ -11,6 +11,18 @@
       "added_by": 1668479932,
       "added_at": "2026-03-17 11:31:13",
       "is_active": 1
+    },
+    {
+      "id": 2,
+      "title": "Solstice 한국 커뮤니티 깜짝 이벤트 #2 - DeFi & Stable 경험 공유",
+      "description": "DeFi와 Stable을 주제로 본인의 경험, 이야기를 자유롭게 작성하는 이벤트입니다. 가장 독창적이고 재미있는 이야기를 공유한 참여자 10명을 선정하여 커피를 지급합니다.",
+      "how_to_do": "1. DeFi와 Stable에 관한 본인의 경험 또는 이야기를 작성한다.\n2. 해당 공지글(https://t.me/solsticekr/65) 댓글로 작성 내용을 제출한다.\n3. 마감일(2026년 3월 6일 23:59 KST) 이전에 참여 완료한다.",
+      "deadline": "2026-03-06T23:59:00",
+      "prizes": "커피 상품권 (10명 선정)",
+      "source_url": "https://t.me/solsticekr/65",
+      "added_by": 1668479932,
+      "added_at": "2026-03-17 11:31:39",
+      "is_active": 1
     }
   ],
   "admins": [
