@@ -405,12 +405,24 @@ async def cmd_listchannels(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     users = await database.get_all_users()
     channels = [x for x in users if x.get("chat_type") in ("channel", "group", "supergroup")]
-    privates = [x for x in users if x.get("chat_type") == "private"]
-    lines = [f"📋 <b>알림 대상 현황</b>\n"]
-    lines.append(f"👤 개인 유저: {len(privates)}명")
-    lines.append(f"📢 채널/그룹: {len(channels)}개\n")
-    for c in channels:
-        lines.append(f"• <b>{c.get('first_name','(이름없음)')}</b>  <code>{c['user_id']}</code>")
+    privates = [x for x in users if x.get("chat_type") == "private" or not x.get("chat_type")]
+    lines = [f"📋 <b>알림 대상 현황</b>\n",
+             f"👤 개인 유저: {len(privates)}명",
+             f"📢 채널/그룹: {len(channels)}개"]
+
+    if channels:
+        lines.append("\n<b>── 채널/그룹 ──</b>")
+        for c in channels:
+            name = c.get("first_name") or "(이름없음)"
+            lines.append(f"• {name}  <code>{c['user_id']}</code>")
+
+    if privates:
+        lines.append("\n<b>── 개인 유저 ──</b>")
+        for p in privates:
+            username = f"@{p['username']}" if p.get("username") else ""
+            name = p.get("first_name") or "(이름없음)"
+            lines.append(f"• {name} {username}  <code>{p['user_id']}</code>")
+
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
