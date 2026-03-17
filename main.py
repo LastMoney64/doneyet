@@ -253,6 +253,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/broadcast – 자유 공지 전체 채널 배포\n"
         "/addchannel [@채널 또는 ID] – 채널/그룹 알림 등록\n"
         "/listchannels – 등록된 채널/그룹 목록\n"
+        "/saveseed – DB를 즉시 GitHub에 백업\n"
         "\n🧪 <b>테스트</b>\n"
         "/testmorning – 아침 알림 미리보기\n"
         "/testevening – 저녁 알림 미리보기\n"
@@ -637,6 +638,20 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ 작업이 취소되었습니다.")
     else:
         await update.message.reply_text("취소할 작업이 없습니다.")
+
+
+async def cmd_saveseed(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """현재 DB를 즉시 GitHub에 백업"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    msg = await update.message.reply_text("⏳ GitHub에 백업 중...")
+    try:
+        await database._export_seed()
+        await msg.edit_text("✅ seed_data.json을 GitHub에 백업했습니다!")
+    except Exception as e:
+        await msg.edit_text(f"❌ 백업 실패: {e}")
 
 
 # ─── Admin: text/URL analysis flow ───────────────────────────────────────────
@@ -1088,6 +1103,7 @@ def main():
     app.add_handler(CommandHandler("addtask", cmd_addtask))
     app.add_handler(CommandHandler("edittask", cmd_edittask))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
+    app.add_handler(CommandHandler("saveseed", cmd_saveseed))
 
     # Admin: 포워드된 메시지 → 채널 등록 (포워드 메시지만 처리)
     app.add_handler(

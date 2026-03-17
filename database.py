@@ -1,15 +1,51 @@
 import aiosqlite
 import json
 import os
+import base64
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import config
 
 DB = config.DATABASE_PATH
 
+_GITHUB_REPO  = "LastMoney64/doneyet"
+_GITHUB_FILE  = "seed_data.json"
+_GITHUB_API   = f"https://api.github.com/repos/{_GITHUB_REPO}/contents/{_GITHUB_FILE}"
+
+
+async def _push_to_github(content_str: str):
+    """seed_data.json을 GitHub API로 직접 업로드 (비동기)"""
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        print("[seed] GITHUB_TOKEN 없음 – GitHub 업로드 생략")
+        return
+    try:
+        import aiohttp
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+        async with aiohttp.ClientSession() as session:
+            # 현재 SHA 조회
+            async with session.get(_GITHUB_API, headers=headers) as r:
+                sha = (await r.json()).get("sha") if r.status == 200 else None
+            payload = {"message": "auto: update seed_data.json", "content": encoded, "branch": "main"}
+            if sha:
+                payload["sha"] = sha
+            async with session.put(_GITHUB_API, headers=headers, json=payload) as r:
+                if r.status in (200, 201):
+                    print(f"[seed] GitHub 업로드 완료 ✅")
+                else:
+                    text = await r.text()
+                    print(f"[seed] GitHub 업로드 실패 {r.status}: {text[:100]}")
+    except Exception as e:
+        print(f"[seed] GitHub 업로드 오류: {e}")
+
 
 async def _export_seed():
-    """현재 DB 상태를 seed_data.json에 저장 (자동 백업)
+    """현재 DB 상태를 seed_data.json에 저장 + GitHub 즉시 업로드
     활성 숙제가 0개면 기존 seed를 보호하기 위해 덮어쓰지 않음"""
     seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_data.json")
     async with aiosqlite.connect(DB) as db:
@@ -18,14 +54,18 @@ async def _export_seed():
         admins = [dict(r) for r in await (await db.execute("SELECT * FROM admins")).fetchall()]
         users  = [dict(r) for r in await (await db.execute("SELECT * FROM users")).fetchall()]
 
-    # 활성 숙제가 없으면 기존 seed 보호 (빈 DB가 정상 데이터를 덮어쓰는 것 방지)
+    # 활성 숙제가 없으면 기존 seed 보호
     active_count = sum(1 for t in tasks if t.get("is_active"))
     if active_count == 0:
         print("[seed] 활성 숙제 없음 – seed_data.json 덮어쓰기 건너뜀")
         return
 
+    content_str = json.dumps({"tasks": tasks, "admins": admins, "users": users}, ensure_ascii=False, indent=2, default=str)
     with open(seed_path, "w", encoding="utf-8") as f:
-        json.dump({"tasks": tasks, "admins": admins, "users": users}, f, ensure_ascii=False, indent=2, default=str)
+        f.write(content_str)
+
+    # GitHub에 즉시 업로드 (백그라운드 태스크로 실행)
+    asyncio.ensure_future(_push_to_github(content_str))
 
 
 async def _load_seed():
