@@ -27,7 +27,7 @@ from telegram.ext import (
 import config
 import database
 import analyzer
-from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders
+from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders, job_expire_tasks
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -975,6 +975,22 @@ async def callback_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ 이미 처리된 요청입니다.")
         return
 
+    # 중복 체크
+    dup = await database.find_duplicate(
+        title=task_data.get("title", ""),
+        source_url=task_data.get("source_url", ""),
+    )
+    if dup:
+        await query.edit_message_text(
+            f"⚠️ <b>중복 숙제 감지!</b>\n\n"
+            f"이미 동일한 숙제가 등록되어 있습니다.\n"
+            f"📌 <b>{dup['title']}</b>\n"
+            f"🆔 ID: <code>#{dup['id']}</code>\n\n"
+            f"추가를 취소했습니다.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     task_id = await database.add_task(
         title=task_data.get("title", "제목 없음"),
         description=task_data.get("description", ""),
@@ -1092,6 +1108,8 @@ def main():
     jq.run_daily(job_evening_notification, time=evening_time, name="evening_notification")
     # 마감 임박 알림 – 15분마다
     jq.run_repeating(job_deadline_reminders, interval=900, first=60, name="deadline_reminders")
+    # 만료 숙제 자동 정리 – 1시간마다
+    jq.run_repeating(job_expire_tasks, interval=3600, first=30, name="expire_tasks")
 
     log.info("Bot is running... (JobQueue started)")
     app.run_polling(drop_pending_updates=True)

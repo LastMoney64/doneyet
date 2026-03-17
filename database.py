@@ -196,6 +196,44 @@ async def get_task_by_id(task_id: int) -> Optional[Dict]:
             return dict(row) if row else None
 
 
+async def expire_past_tasks() -> int:
+    """마감이 지난 숙제를 자동으로 비활성화. 처리된 건수 반환"""
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            "UPDATE tasks SET is_active = 0 WHERE is_active = 1 AND deadline IS NOT NULL AND deadline < ?",
+            (now,),
+        )
+        await db.commit()
+        count = cur.rowcount
+    if count > 0:
+        await _export_seed()
+    return count
+
+
+async def find_duplicate(title: str, source_url: str) -> Optional[Dict]:
+    """동일한 source_url 또는 유사한 제목의 숙제가 있으면 반환"""
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        # source_url 완전 일치 (비어있지 않을 때)
+        if source_url:
+            async with db.execute(
+                "SELECT * FROM tasks WHERE is_active = 1 AND source_url = ?", (source_url,)
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    return dict(row)
+        # 제목 정규화 비교 (공백·특수문자 제거 후 비교)
+        import re
+        norm = lambda s: re.sub(r"[\s\W]", "", s).lower()
+        target = norm(title)
+        async with db.execute("SELECT * FROM tasks WHERE is_active = 1") as cur:
+            for row in await cur.fetchall():
+                if norm(row["title"]) == target:
+                    return dict(row)
+    return None
+
+
 async def get_all_tasks() -> List[Dict]:
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row

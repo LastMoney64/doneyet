@@ -219,3 +219,10 @@ async def job_deadline_reminders(context: ContextTypes.DEFAULT_TYPE):
                         print(f"[deadline] user {uid}: {e}")
             except Exception as e:
                 print(f"[deadline] task {task.get('id')}: {e}")
+
+
+async def job_expire_tasks(context: ContextTypes.DEFAULT_TYPE):
+    """마감이 지난 숙제 자동 비활성화 (매일 자정 + 1시간마다)"""
+    count = await database.expire_past_tasks()
+    if count > 0:
+        print(f"[expire] {count}개 숙제 자동 만료 처리")
