@@ -239,7 +239,7 @@ async def get_all_tasks() -> List[Dict]:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             """SELECT * FROM tasks WHERE is_active = 1
-               ORDER BY CASE WHEN deadline IS NULL THEN 1 ELSE 0 END, deadline ASC"""
+               ORDER BY id ASC"""
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
