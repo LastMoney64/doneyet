@@ -1034,24 +1034,6 @@ async def callback_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML,
     )
 
-    # Broadcast to all users
-    task = await database.get_task_by_id(task_id)
-    if task:
-        broadcast_msg = "📢 <b>새 숙제가 추가되었습니다!</b>\n\n" + task_card(task)
-        users = await database.get_all_users()
-        for user in users:
-            if user["user_id"] == uid:
-                continue  # admin already sees the confirmation
-            try:
-                await ctx.bot.send_message(
-                    chat_id=user["user_id"],
-                    text=broadcast_msg,
-                    parse_mode=ParseMode.HTML,
-                )
-                await asyncio.sleep(0.05)
-            except Exception:
-                pass
-
 
 # ─── Application setup ────────────────────────────────────────────────────────
 
