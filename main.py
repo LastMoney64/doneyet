@@ -427,6 +427,38 @@ async def cmd_listchannels(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
+async def cmd_setdiscord(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """디스코드 웹훅 URL 등록"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args:
+        current = await database.get_setting("discord_webhook_url")
+        if current:
+            await update.message.reply_text("✅ 디스코드 웹훅이 등록되어 있습니다.\n삭제하려면 /deldiscord")
+        else:
+            await update.message.reply_text("❌ 등록된 디스코드 웹훅이 없습니다.\n\n사용법: /setdiscord [웹훅URL]")
+        return
+    webhook_url = ctx.args[0]
+    if not webhook_url.startswith("https://discord.com/api/webhooks/"):
+        await update.message.reply_text("❌ 올바른 디스코드 웹훅 URL이 아닙니다.\nhttps://discord.com/api/webhooks/... 형식이어야 합니다.")
+        return
+    await database.set_setting("discord_webhook_url", webhook_url)
+    await discord_notify.send("✅ 다했니? 봇 디스코드 알림이 연결되었습니다!")
+    await update.message.reply_text("✅ 디스코드 웹훅이 등록되었습니다!\n테스트 메시지를 디스코드로 전송했습니다.")
+
+
+async def cmd_deldiscord(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """디스코드 웹훅 URL 삭제"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    await database.delete_setting("discord_webhook_url")
+    await update.message.reply_text("✅ 디스코드 웹훅이 삭제되었습니다.")
+
+
 async def cmd_deltask(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     if not await is_admin(u.id):
@@ -1066,6 +1098,8 @@ def main():
     app.add_handler(CommandHandler("admins", cmd_admins))
     app.add_handler(CommandHandler("addchannel", cmd_addchannel))
     app.add_handler(CommandHandler("listchannels", cmd_listchannels))
+    app.add_handler(CommandHandler("setdiscord", cmd_setdiscord))
+    app.add_handler(CommandHandler("deldiscord", cmd_deldiscord))
     app.add_handler(CommandHandler("deltask", cmd_deltask))
     app.add_handler(CommandHandler("notify", cmd_notify))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))

@@ -1,26 +1,26 @@
 """
 Discord Webhook 알림 헬퍼
-- DISCORD_WEBHOOK_URL 환경변수가 설정된 경우에만 동작
+- DB settings 테이블의 discord_webhook_url 값을 사용
 - HTML 태그 제거 후 Discord용 텍스트로 변환
 """
 
 import re
 import aiohttp
-import config
+import database
 
 
 def _html_to_discord(text: str) -> str:
     """HTML 포맷 → Discord 마크다운 변환"""
     text = re.sub(r"<b>(.*?)</b>", r"**\1**", text, flags=re.DOTALL)
     text = re.sub(r"<code>(.*?)</code>", r"`\1`", text, flags=re.DOTALL)
-    text = re.sub(r"<[^>]+>", "", text)  # 나머지 HTML 태그 제거
+    text = re.sub(r"<[^>]+>", "", text)
     text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
     return text.strip()
 
 
 async def send(message: str):
     """Discord 웹훅으로 메시지 전송"""
-    url = config.DISCORD_WEBHOOK_URL
+    url = await database.get_setting("discord_webhook_url")
     if not url:
         return
 

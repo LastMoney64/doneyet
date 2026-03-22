@@ -38,7 +38,12 @@
       "Bash(taskkill /F /IM python.exe)",
       "Bash(powershell -Command \"Stop-Process -Name python -Force -ErrorAction SilentlyContinue; Start-Sleep 2; Get-Process python -ErrorAction SilentlyContinue | Select-Object Id,Name\")",
       "Bash(powershell.exe -Command 'Stop-Process -Name python -Force')",
-      "Bash(grep -n '`#\\\\|`\\\\|`\\\\*\\\\|\\\\*{' \"G:/내 드라이브/AI작업/.claude/다했니 \\(DoneYet\\)/main.py\")"
+      "Bash(grep -n '`#\\\\|`\\\\|`\\\\*\\\\|\\\\*{' \"G:/내 드라이브/AI작업/.claude/다했니 \\(DoneYet\\)/main.py\")",
+      "Bash(curl -s \"https://api.telegram.org/bot8687249675:AAEUK7lUxjM05gDdWYXQD5KksMe663-ejg8/getChat?chat_id=@lastmoneychat\")",
+      "Bash(tail -20 \"G:/내 드라이브/AI작업/.claude/다했니 \\(DoneYet\\)/scheduler.py\")",
+      "Bash(python -c \"import sys; print\\(sys.stdin.buffer.read\\(\\).decode\\(''''utf-8'''',''''replace''''\\)\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/LastMoney64/doneyet/contents/seed_data.json\")",
+      "Bash(curl -s \"https://api.github.com/repos/LastMoney64/doneyet/commits?path=seed_data.json&per_page=3\")"
     ]
   }
 }

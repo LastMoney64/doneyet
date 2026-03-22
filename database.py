@@ -96,8 +96,33 @@ async def init_db():
                 sent_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         await db.commit()
     await _load_seed()
+
+
+async def get_setting(key: str) -> Optional[str]:
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+
+async def set_setting(key: str, value: str):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+        await db.commit()
+
+
+async def delete_setting(key: str):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM settings WHERE key = ?", (key,))
+        await db.commit()
 
 
 # ─── Admin operations ────────────────────────────────────────────────────────
