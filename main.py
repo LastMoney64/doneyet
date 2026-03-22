@@ -533,6 +533,7 @@ async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def _do_broadcast(update, ctx, text: str):
+    await discord_notify.send(text)
     users = await database.get_all_users()
     sent, fail = 0, 0
     for user in users:
