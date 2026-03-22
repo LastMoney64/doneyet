@@ -1053,11 +1053,6 @@ async def callback_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML,
     )
 
-    # Discord 알림
-    task_full = await database.get_task_by_id(task_id)
-    if task_full:
-        from scheduler import task_card_compact
-        await discord_notify.send(f"✅ 새 숙제가 추가되었습니다!\n\n{task_card_compact(task_full)}")
 
 
 # ─── Application setup ────────────────────────────────────────────────────────
@@ -1148,6 +1143,17 @@ def main():
     jq.run_repeating(job_expire_tasks, interval=3600, first=30, name="expire_tasks")
 
     log.info("Bot is running... (JobQueue started)")
+
+    # Discord 봇 병렬 실행
+    if config.DISCORD_BOT_TOKEN:
+        import threading
+        from discord_bot import run_discord_bot
+        def start_discord():
+            import asyncio
+            asyncio.run(run_discord_bot())
+        threading.Thread(target=start_discord, daemon=True).start()
+        log.info("Discord bot thread started")
+
     app.run_polling(drop_pending_updates=True)
 
 
