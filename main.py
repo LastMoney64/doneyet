@@ -27,6 +27,7 @@ from telegram.ext import (
 import config
 import database
 import analyzer
+import discord_notify
 from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders, job_expire_tasks
 
 logging.basicConfig(
@@ -1018,6 +1019,12 @@ async def callback_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🆔 ID: <code>{task_id}</code>",
         parse_mode=ParseMode.HTML,
     )
+
+    # Discord 알림
+    task_full = await database.get_task_by_id(task_id)
+    if task_full:
+        from scheduler import task_card_compact
+        await discord_notify.send(f"✅ 새 숙제가 추가되었습니다!\n\n{task_card_compact(task_full)}")
 
 
 # ─── Application setup ────────────────────────────────────────────────────────

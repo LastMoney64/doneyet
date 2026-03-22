@@ -11,6 +11,7 @@ from telegram.error import TelegramError
 
 import database
 import config
+import discord_notify
 
 KST = zoneinfo.ZoneInfo(config.TIMEZONE)
 
@@ -136,6 +137,7 @@ async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
         return
 
     message = await _build_daily_message("🌅", "💪 오늘도 화이팅!")
+    await discord_notify.send(message)
 
     for user in users:
         uid = user["user_id"]
@@ -158,6 +160,7 @@ async def job_evening_notification(context: ContextTypes.DEFAULT_TYPE):
         return
 
     message = await _build_daily_message("🌙", "✅ 오늘 숙제 잊지 말고 마무리하세요!")
+    await discord_notify.send(message)
 
     for user in users:
         uid = user["user_id"]
@@ -205,13 +208,14 @@ async def job_deadline_reminders(context: ContextTypes.DEFAULT_TYPE):
                 if task.get("source_url"):
                     message += f"  ·  🔗 {_e(task['source_url'])}"
 
+                await discord_notify.send(message)
                 for user in users:
                     uid = user["user_id"]
                     if await database.already_sent(task["id"], uid, label):
                         continue
                     try:
                         await context.bot.send_message(
-                            chat_id=uid, text=message, parse_mode="Markdown"
+                            chat_id=uid, text=message, parse_mode="HTML"
                         )
                         await database.mark_sent(task["id"], uid, label)
                         await asyncio.sleep(0.05)
