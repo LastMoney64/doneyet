@@ -28,7 +28,7 @@ import config
 import database
 import analyzer
 import discord_notify
-from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders, job_expire_tasks
+from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders, job_expire_tasks, job_shoutout_check
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -270,10 +270,19 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_tasks(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await ensure_registered(update)
     tasks = await database.get_all_tasks()
+    pins = await database.get_active_pins()
+
+    header = ""
+    if pins:
+        pin_lines = [f"📌 <b>[공지]</b> {_esc(p['text'])}" for p in pins]
+        header = "\n".join(pin_lines) + f"\n{SEP}\n"
+
     if not tasks:
-        await update.message.reply_text("현재 등록된 숙제가 없습니다.")
+        msg = header + "현재 등록된 숙제가 없습니다." if header else "현재 등록된 숙제가 없습니다."
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
         return
-    msg = tasks_page_message(tasks, 0)
+
+    msg = header + tasks_page_message(tasks, 0)
     kbd = build_page_keyboard(tasks, 0)
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=kbd)
 
@@ -1058,6 +1067,213 @@ async def callback_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 
+# ─── 유료 기능: 샤라웃 / 배너 / 핀 ─────────────────────────────────────────────
+
+def _parse_duration(duration_str: str) -> Optional[datetime]:
+    """'7d', '30d', 'forever' → datetime or None"""
+    if duration_str.lower() in ("forever", "영구", "무제한"):
+        return None
+    import re
+    m = re.match(r"^(\d+)d$", duration_str.lower())
+    if m:
+        from datetime import timedelta
+        return datetime.now() + timedelta(days=int(m.group(1)))
+    return None
+
+
+def _fmt_until(until_str: Optional[str]) -> str:
+    if not until_str:
+        return "무제한"
+    try:
+        dt = datetime.fromisoformat(until_str)
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return until_str
+
+
+# ── 샤라웃 ───────────────────────────────────────────────────────────────────
+
+async def cmd_addshoutout(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """사용법: /addshoutout HH:MM 30d 내용"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args or len(ctx.args) < 3:
+        await update.message.reply_text(
+            "사용법: <code>/addshoutout HH:MM 기간 내용</code>\n"
+            "예: <code>/addshoutout 12:00 30d @채널명 – 크립토 정보 채널</code>\n"
+            "기간: 7d, 30d, forever",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    time_str = ctx.args[0]
+    duration_str = ctx.args[1]
+    text = " ".join(ctx.args[2:])
+    import re
+    if not re.match(r"^\d{2}:\d{2}$", time_str):
+        await update.message.reply_text("❌ 시간 형식이 잘못됐습니다. 예: 12:00")
+        return
+    active_until = _parse_duration(duration_str)
+    sid = await database.add_shoutout(text, time_str, active_until)
+    until_display = _fmt_until(active_until.isoformat() if active_until else None)
+    await update.message.reply_text(
+        f"✅ 샤라웃이 등록됐습니다!\n"
+        f"🆔 ID: <code>#{sid}</code>\n"
+        f"⏰ 발송 시각: <b>{time_str}</b> (매일)\n"
+        f"📅 만료: {until_display}\n"
+        f"📣 내용: {_esc(text)}",
+        parse_mode=ParseMode.HTML
+    )
+
+
+async def cmd_shoutouts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    items = await database.get_active_shoutouts()
+    if not items:
+        await update.message.reply_text("등록된 샤라웃이 없습니다.")
+        return
+    lines = ["📣 <b>샤라웃 목록</b>\n"]
+    for s in items:
+        until = _fmt_until(s.get("active_until"))
+        lines.append(f"🆔 <code>#{s['id']}</code>  ⏰ {s['schedule_time']}  📅 {until}")
+        lines.append(f"└ {_esc(s['text'])}\n")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def cmd_delshoutout(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args:
+        await update.message.reply_text("사용법: <code>/delshoutout [ID]</code>", parse_mode=ParseMode.HTML)
+        return
+    await database.delete_shoutout(int(ctx.args[0]))
+    await update.message.reply_text(f"✅ 샤라웃 #{ctx.args[0]} 삭제 완료")
+
+
+# ── 광고 배너 ─────────────────────────────────────────────────────────────────
+
+async def cmd_addbanner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """사용법: /addbanner 30d 내용"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args or len(ctx.args) < 2:
+        await update.message.reply_text(
+            "사용법: <code>/addbanner 기간 내용</code>\n"
+            "예: <code>/addbanner 30d @채널명 – 에어드랍 전문</code>\n"
+            "기간: 7d, 30d, forever",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    duration_str = ctx.args[0]
+    text = " ".join(ctx.args[1:])
+    active_until = _parse_duration(duration_str)
+    bid = await database.add_banner(text, active_until)
+    until_display = _fmt_until(active_until.isoformat() if active_until else None)
+    await update.message.reply_text(
+        f"✅ 배너가 등록됐습니다!\n"
+        f"🆔 ID: <code>#{bid}</code>\n"
+        f"📅 만료: {until_display}\n"
+        f"📣 내용: {_esc(text)}",
+        parse_mode=ParseMode.HTML
+    )
+
+
+async def cmd_banners(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    items = await database.get_active_banners()
+    if not items:
+        await update.message.reply_text("등록된 배너가 없습니다.")
+        return
+    lines = ["📣 <b>광고 배너 목록</b>\n"]
+    for b in items:
+        until = _fmt_until(b.get("active_until"))
+        lines.append(f"🆔 <code>#{b['id']}</code>  📅 {until}")
+        lines.append(f"└ {_esc(b['text'])}\n")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def cmd_delbanner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args:
+        await update.message.reply_text("사용법: <code>/delbanner [ID]</code>", parse_mode=ParseMode.HTML)
+        return
+    await database.delete_banner(int(ctx.args[0]))
+    await update.message.reply_text(f"✅ 배너 #{ctx.args[0]} 삭제 완료")
+
+
+# ── 핀 공지 ───────────────────────────────────────────────────────────────────
+
+async def cmd_addpin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """사용법: /addpin 30d 내용"""
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args or len(ctx.args) < 2:
+        await update.message.reply_text(
+            "사용법: <code>/addpin 기간 내용</code>\n"
+            "예: <code>/addpin 7d 맨틀 이벤트 참여하세요!</code>\n"
+            "기간: 7d, 30d, forever",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    duration_str = ctx.args[0]
+    text = " ".join(ctx.args[1:])
+    active_until = _parse_duration(duration_str)
+    pid = await database.add_pin(text, active_until)
+    until_display = _fmt_until(active_until.isoformat() if active_until else None)
+    await update.message.reply_text(
+        f"✅ 핀 공지가 등록됐습니다!\n"
+        f"🆔 ID: <code>#{pid}</code>\n"
+        f"📅 만료: {until_display}\n"
+        f"📌 내용: {_esc(text)}",
+        parse_mode=ParseMode.HTML
+    )
+
+
+async def cmd_pins(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    items = await database.get_active_pins()
+    if not items:
+        await update.message.reply_text("등록된 핀 공지가 없습니다.")
+        return
+    lines = ["📌 <b>핀 공지 목록</b>\n"]
+    for p in items:
+        until = _fmt_until(p.get("active_until"))
+        lines.append(f"🆔 <code>#{p['id']}</code>  📅 {until}")
+        lines.append(f"└ {_esc(p['text'])}\n")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def cmd_delpin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    if not ctx.args:
+        await update.message.reply_text("사용법: <code>/delpin [ID]</code>", parse_mode=ParseMode.HTML)
+        return
+    await database.delete_pin(int(ctx.args[0]))
+    await update.message.reply_text(f"✅ 핀 공지 #{ctx.args[0]} 삭제 완료")
+
+
 # ─── Application setup ────────────────────────────────────────────────────────
 
 async def post_init(app: Application):
@@ -1111,6 +1327,17 @@ def main():
     app.add_handler(CommandHandler("edittask", cmd_edittask))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
 
+    # 유료 기능 명령어
+    app.add_handler(CommandHandler("addshoutout", cmd_addshoutout))
+    app.add_handler(CommandHandler("shoutouts", cmd_shoutouts))
+    app.add_handler(CommandHandler("delshoutout", cmd_delshoutout))
+    app.add_handler(CommandHandler("addbanner", cmd_addbanner))
+    app.add_handler(CommandHandler("banners", cmd_banners))
+    app.add_handler(CommandHandler("delbanner", cmd_delbanner))
+    app.add_handler(CommandHandler("addpin", cmd_addpin))
+    app.add_handler(CommandHandler("pins", cmd_pins))
+    app.add_handler(CommandHandler("delpin", cmd_delpin))
+
     # Admin: 포워드된 메시지 → 채널 등록 (포워드 메시지만 처리)
     app.add_handler(
         MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded_channel)
@@ -1144,6 +1371,8 @@ def main():
     jq.run_repeating(job_deadline_reminders, interval=900, first=60, name="deadline_reminders")
     # 만료 숙제 자동 정리 – 1시간마다
     jq.run_repeating(job_expire_tasks, interval=3600, first=30, name="expire_tasks")
+    # 샤라웃 체크 – 매 분마다
+    jq.run_repeating(job_shoutout_check, interval=60, first=10, name="shoutout_check")
 
     log.info("Bot is running... (JobQueue started)")
 

@@ -102,6 +102,31 @@ async def init_db():
                 value TEXT
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS shoutouts (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                text          TEXT NOT NULL,
+                schedule_time TEXT NOT NULL,
+                active_until  TEXT,
+                created_at    TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS banners (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                text         TEXT NOT NULL,
+                active_until TEXT,
+                created_at   TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pins (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                text         TEXT NOT NULL,
+                active_until TEXT,
+                created_at   TEXT DEFAULT (datetime('now'))
+            )
+        """)
         await db.commit()
     await _load_seed()
 
@@ -363,4 +388,109 @@ async def mark_sent(task_id: int, user_id: int, ntype: str):
             "INSERT INTO notifications_sent (task_id, user_id, notification_type) VALUES (?, ?, ?)",
             (task_id, user_id, ntype),
         )
+        await db.commit()
+
+
+# ─── Shoutout operations ──────────────────────────────────────────────────────
+
+async def add_shoutout(text: str, schedule_time: str, active_until: Optional[datetime]) -> int:
+    """샤라웃 추가. schedule_time: 'HH:MM'"""
+    until_str = active_until.isoformat() if active_until else None
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            "INSERT INTO shoutouts (text, schedule_time, active_until) VALUES (?, ?, ?)",
+            (text, schedule_time, until_str),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_active_shoutouts() -> List[Dict]:
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM shoutouts WHERE active_until IS NULL OR active_until > ? ORDER BY schedule_time",
+            (now,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_shoutouts_for_time(hhmm: str) -> List[Dict]:
+    """현재 HH:MM에 발송해야 할 활성 샤라웃"""
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM shoutouts WHERE schedule_time = ? AND (active_until IS NULL OR active_until > ?)",
+            (hhmm, now),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_shoutout(shoutout_id: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM shoutouts WHERE id = ?", (shoutout_id,))
+        await db.commit()
+
+
+# ─── Banner operations ────────────────────────────────────────────────────────
+
+async def add_banner(text: str, active_until: Optional[datetime]) -> int:
+    """광고 배너 추가"""
+    until_str = active_until.isoformat() if active_until else None
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            "INSERT INTO banners (text, active_until) VALUES (?, ?)",
+            (text, until_str),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_active_banners() -> List[Dict]:
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM banners WHERE active_until IS NULL OR active_until > ? ORDER BY id",
+            (now,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_banner(banner_id: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM banners WHERE id = ?", (banner_id,))
+        await db.commit()
+
+
+# ─── Pin operations ───────────────────────────────────────────────────────────
+
+async def add_pin(text: str, active_until: Optional[datetime]) -> int:
+    """핀 공지 추가"""
+    until_str = active_until.isoformat() if active_until else None
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            "INSERT INTO pins (text, active_until) VALUES (?, ?)",
+            (text, until_str),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_active_pins() -> List[Dict]:
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM pins WHERE active_until IS NULL OR active_until > ? ORDER BY id",
+            (now,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_pin(pin_id: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM pins WHERE id = ?", (pin_id,))
         await db.commit()

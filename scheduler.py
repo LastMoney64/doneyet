@@ -125,7 +125,37 @@ async def _build_daily_message(prefix_emoji: str, suffix_msg: str) -> str:
         lines.append("전체 숙제 목록은 /tasks 를 입력하세요.")
 
     lines.append(f"\n{suffix_msg}")
+
+    # 광고 배너 추가
+    banners = await database.get_active_banners()
+    if banners:
+        lines.append(f"\n{SEP}")
+        lines.append("📣 <b>파트너 채널</b>")
+        for b in banners:
+            lines.append(f"• {b['text']}")
+
     return "\n".join(lines)
+
+
+async def job_shoutout_check(context: ContextTypes.DEFAULT_TYPE):
+    """매 분마다 샤라웃 시간 체크 후 발송"""
+    hhmm = now_kst().strftime("%H:%M")
+    shoutouts = await database.get_shoutouts_for_time(hhmm)
+    if not shoutouts:
+        return
+
+    users = await database.get_all_users()
+    for s in shoutouts:
+        message = f"📣 <b>파트너 소개</b>\n\n{_e(s['text'])}"
+        await discord_notify.send(message)
+        for user in users:
+            try:
+                await context.bot.send_message(
+                    chat_id=user["user_id"], text=message, parse_mode="HTML"
+                )
+                await asyncio.sleep(0.05)
+            except TelegramError as e:
+                print(f"[shoutout] user {user['user_id']}: {e}")
 
 
 async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
