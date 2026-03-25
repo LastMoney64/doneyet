@@ -122,8 +122,15 @@ async def analyze_input(text: str) -> Optional[Dict]:
     source_url = ""
     content = text.strip()
 
+    # 텍스트 길이 제한 (토큰 초과 방지)
+    if len(content) > 6000:
+        content = content[:6000]
+
     if is_url(content):
         source_url = content
+        # 텔레그램 링크는 크롤링 불가 → 텍스트로 입력 요청
+        if is_telegram_url(source_url):
+            return {"is_valid": False, "error": "텔레그램 링크는 직접 분석이 어렵습니다.\n\n공지 내용을 텍스트로 복사해서 붙여넣기 해주세요."}
         fetched = await fetch_url_content(content)
         if not fetched:
             return {"is_valid": False, "error": "URL 내용을 가져올 수 없습니다. 텍스트로 직접 붙여넣기 해주세요."}

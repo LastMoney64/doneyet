@@ -18,21 +18,24 @@ def _html_to_discord(text: str) -> str:
     return text.strip()
 
 
-async def send(message: str):
-    """Discord 웹훅으로 메시지 전송"""
+async def send(message: str) -> bool:
+    """Discord 웹훅으로 메시지 전송. 성공 시 True 반환"""
     url = await database.get_setting("discord_webhook_url")
     if not url:
-        return
+        return False
 
     content = _html_to_discord(message)
     if not content:
-        return
+        return False
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json={"content": content}) as r:
-                if r.status not in (200, 204):
-                    text = await r.text()
-                    print(f"[discord] 전송 실패 {r.status}: {text[:100]}")
+                if r.status in (200, 204):
+                    return True
+                text = await r.text()
+                print(f"[discord] 전송 실패 {r.status}: {text[:100]}")
+                return False
     except Exception as e:
         print(f"[discord] 오류: {e}")
+        return False

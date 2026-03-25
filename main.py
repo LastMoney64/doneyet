@@ -533,7 +533,7 @@ async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def _do_broadcast(update, ctx, text: str):
-    await discord_notify.send(text)
+    discord_ok = await discord_notify.send(text)
     users = await database.get_all_users()
     sent, fail = 0, 0
     for user in users:
@@ -543,7 +543,10 @@ async def _do_broadcast(update, ctx, text: str):
             await asyncio.sleep(0.05)
         except Exception:
             fail += 1
-    await update.message.reply_text(f"✅ 전송 완료!\n📨 성공: {sent}개  ❌ 실패: {fail}개")
+    discord_status = "✅" if discord_ok else "❌"
+    await update.message.reply_text(
+        f"✅ 전송 완료!\n📨 성공: {sent}개  ❌ 실패: {fail}개\n디스코드: {discord_status}"
+    )
 
 
 async def cmd_send_evening(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
