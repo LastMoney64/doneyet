@@ -1091,29 +1091,79 @@ def _fmt_until(until_str: Optional[str]) -> str:
         return until_str
 
 
+def _task_to_shoutout_text(task: dict) -> str:
+    from scheduler import fmt_deadline
+    lines = [f"🚀 {task['title']}"]
+    dl = fmt_deadline(task)
+    if dl:
+        lines.append(f"⏰ 마감 | {dl}")
+    if task.get("prizes"):
+        lines.append(f"🏆 상품 | {task['prizes']}")
+    if task.get("source_url"):
+        lines.append(f"🔗 {task['source_url']}")
+    return "\n".join(lines)
+
+
+def _task_to_banner_text(task: dict) -> str:
+    from scheduler import fmt_deadline
+    parts = [f"🚀 {task['title']}"]
+    dl = fmt_deadline(task)
+    if dl:
+        parts.append(f"⏰ {dl}")
+    if task.get("source_url"):
+        parts.append(f"🔗 {task['source_url']}")
+    return "  |  ".join(parts)
+
+
+def _task_to_pin_text(task: dict) -> str:
+    from scheduler import fmt_deadline
+    lines = [f"📌 {task['title']}"]
+    dl = fmt_deadline(task)
+    if dl:
+        lines.append(f"⏰ 마감 | {dl}")
+    if task.get("prizes"):
+        lines.append(f"🏆 상품 | {task['prizes']}")
+    if task.get("source_url"):
+        lines.append(f"🔗 {task['source_url']}")
+    return "\n".join(lines)
+
+
 # ── 샤라웃 ───────────────────────────────────────────────────────────────────
 
 async def cmd_addshoutout(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """사용법: /addshoutout HH:MM 30d 내용"""
+    """사용법: /addshoutout HH:MM 30d 내용 또는 숙제ID"""
     u = update.effective_user
     if not await is_admin(u.id):
         await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
         return
     if not ctx.args or len(ctx.args) < 3:
         await update.message.reply_text(
-            "사용법: <code>/addshoutout HH:MM 기간 내용</code>\n"
-            "예: <code>/addshoutout 12:00 30d @채널명 – 크립토 정보 채널</code>\n"
-            "기간: 7d, 30d, forever",
+            "사용법:\n"
+            "<code>/addshoutout HH:MM 기간 숙제ID</code>\n"
+            "<code>/addshoutout HH:MM 기간 직접입력 내용</code>\n\n"
+            "예: <code>/addshoutout 20:00 30d 51</code>\n"
+            "예: <code>/addshoutout 12:00 7d @채널명 – 크립토 채널</code>",
             parse_mode=ParseMode.HTML
         )
         return
+    import re
     time_str = ctx.args[0]
     duration_str = ctx.args[1]
-    text = " ".join(ctx.args[2:])
-    import re
     if not re.match(r"^\d{2}:\d{2}$", time_str):
-        await update.message.reply_text("❌ 시간 형식이 잘못됐습니다. 예: 12:00")
+        await update.message.reply_text("❌ 시간 형식이 잘못됐습니다. 예: 20:00")
         return
+    # 마지막 인자가 숫자면 숙제 ID로 처리
+    raw = " ".join(ctx.args[2:])
+    if re.match(r"^\d+$", raw.strip()):
+        task = await database.get_task_by_id(int(raw.strip()))
+        if not task:
+            await update.message.reply_text(f"❌ 숙제 #{raw.strip()}을(를) 찾을 수 없습니다.")
+            return
+        text = _task_to_shoutout_text(task)
+        source = f"숙제 #{task['id']} ({_esc(task['title'])})"
+    else:
+        text = raw
+        source = _esc(text)
     active_until = _parse_duration(duration_str)
     sid = await database.add_shoutout(text, time_str, active_until)
     until_display = _fmt_until(active_until.isoformat() if active_until else None)
@@ -1122,7 +1172,7 @@ async def cmd_addshoutout(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🆔 ID: <code>#{sid}</code>\n"
         f"⏰ 발송 시각: <b>{time_str}</b> (매일)\n"
         f"📅 만료: {until_display}\n"
-        f"📣 내용: {_esc(text)}",
+        f"📣 출처: {source}",
         parse_mode=ParseMode.HTML
     )
 
@@ -1159,21 +1209,34 @@ async def cmd_delshoutout(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── 광고 배너 ─────────────────────────────────────────────────────────────────
 
 async def cmd_addbanner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """사용법: /addbanner 30d 내용"""
+    """사용법: /addbanner 30d 숙제ID 또는 직접입력"""
     u = update.effective_user
     if not await is_admin(u.id):
         await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
         return
     if not ctx.args or len(ctx.args) < 2:
         await update.message.reply_text(
-            "사용법: <code>/addbanner 기간 내용</code>\n"
-            "예: <code>/addbanner 30d @채널명 – 에어드랍 전문</code>\n"
-            "기간: 7d, 30d, forever",
+            "사용법:\n"
+            "<code>/addbanner 기간 숙제ID</code>\n"
+            "<code>/addbanner 기간 직접입력 내용</code>\n\n"
+            "예: <code>/addbanner 30d 51</code>\n"
+            "예: <code>/addbanner 7d @채널명 – 에어드랍 전문</code>",
             parse_mode=ParseMode.HTML
         )
         return
+    import re
     duration_str = ctx.args[0]
-    text = " ".join(ctx.args[1:])
+    raw = " ".join(ctx.args[1:])
+    if re.match(r"^\d+$", raw.strip()):
+        task = await database.get_task_by_id(int(raw.strip()))
+        if not task:
+            await update.message.reply_text(f"❌ 숙제 #{raw.strip()}을(를) 찾을 수 없습니다.")
+            return
+        text = _task_to_banner_text(task)
+        source = f"숙제 #{task['id']} ({_esc(task['title'])})"
+    else:
+        text = raw
+        source = _esc(text)
     active_until = _parse_duration(duration_str)
     bid = await database.add_banner(text, active_until)
     until_display = _fmt_until(active_until.isoformat() if active_until else None)
@@ -1181,7 +1244,7 @@ async def cmd_addbanner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"✅ 배너가 등록됐습니다!\n"
         f"🆔 ID: <code>#{bid}</code>\n"
         f"📅 만료: {until_display}\n"
-        f"📣 내용: {_esc(text)}",
+        f"📣 출처: {source}",
         parse_mode=ParseMode.HTML
     )
 
@@ -1218,21 +1281,34 @@ async def cmd_delbanner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── 핀 공지 ───────────────────────────────────────────────────────────────────
 
 async def cmd_addpin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """사용법: /addpin 30d 내용"""
+    """사용법: /addpin 30d 숙제ID 또는 직접입력"""
     u = update.effective_user
     if not await is_admin(u.id):
         await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
         return
     if not ctx.args or len(ctx.args) < 2:
         await update.message.reply_text(
-            "사용법: <code>/addpin 기간 내용</code>\n"
-            "예: <code>/addpin 7d 맨틀 이벤트 참여하세요!</code>\n"
-            "기간: 7d, 30d, forever",
+            "사용법:\n"
+            "<code>/addpin 기간 숙제ID</code>\n"
+            "<code>/addpin 기간 직접입력 내용</code>\n\n"
+            "예: <code>/addpin 30d 51</code>\n"
+            "예: <code>/addpin 7d 맨틀 이벤트 참여하세요!</code>",
             parse_mode=ParseMode.HTML
         )
         return
+    import re
     duration_str = ctx.args[0]
-    text = " ".join(ctx.args[1:])
+    raw = " ".join(ctx.args[1:])
+    if re.match(r"^\d+$", raw.strip()):
+        task = await database.get_task_by_id(int(raw.strip()))
+        if not task:
+            await update.message.reply_text(f"❌ 숙제 #{raw.strip()}을(를) 찾을 수 없습니다.")
+            return
+        text = _task_to_pin_text(task)
+        source = f"숙제 #{task['id']} ({_esc(task['title'])})"
+    else:
+        text = raw
+        source = _esc(text)
     active_until = _parse_duration(duration_str)
     pid = await database.add_pin(text, active_until)
     until_display = _fmt_until(active_until.isoformat() if active_until else None)
@@ -1240,7 +1316,7 @@ async def cmd_addpin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"✅ 핀 공지가 등록됐습니다!\n"
         f"🆔 ID: <code>#{pid}</code>\n"
         f"📅 만료: {until_display}\n"
-        f"📌 내용: {_esc(text)}",
+        f"📌 출처: {source}",
         parse_mode=ParseMode.HTML
     )
 
