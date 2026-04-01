@@ -1,5 +1,6 @@
 import re
 import json
+import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -67,7 +68,8 @@ async def fetch_url_content(url: str) -> Optional[str]:
         return None
 
 
-async def _call_claude(content: str) -> Optional[Dict]:
+def _call_claude_sync(content: str) -> Optional[Dict]:
+    """동기 Claude API 호출 (스레드에서 실행됨)"""
     current_year = datetime.now().year
     prompt = ANALYSIS_PROMPT.format(content=content, current_year=current_year)
     try:
@@ -84,6 +86,12 @@ async def _call_claude(content: str) -> Optional[Dict]:
     except Exception as e:
         print(f"[claude] {e}")
     return None
+
+
+async def _call_claude(content: str) -> Optional[Dict]:
+    """이벤트 루프를 블로킹하지 않도록 스레드에서 실행"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _call_claude_sync, content)
 
 
 def parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
