@@ -260,3 +260,63 @@ async def job_expire_tasks(context: ContextTypes.DEFAULT_TYPE):
     count = await database.expire_past_tasks()
     if count > 0:
         print(f"[expire] {count}개 숙제 자동 만료 처리")
+
+
+# ─── Meetup reminders ────────────────────────────────────────────────────────
+
+async def job_meetup_reminders(context: ContextTypes.DEFAULT_TYPE):
+    """밋업 D-1, 당일 3시간 전, 1시간 전 알림 (별도)"""
+    users = await database.get_all_users()
+    if not users:
+        return
+
+    windows = [
+        ("meetup_d1",  "📍 내일 밋업이 있습니다!",     23.0,  25.0),
+        ("meetup_3h",  "📍 밋업 3시간 전!",            2.75,  3.25),
+        ("meetup_1h",  "📍 밋업 1시간 전!",            0.75,  1.25),
+    ]
+
+    for label, header, low, high in windows:
+        meetups = await database.get_meetups_for_reminder(low, high)
+        for m in meetups:
+            try:
+                message = (
+                    f"<b>{header}</b>\n\n"
+                    f"📍 <b>{_e(m['title'])}</b>\n"
+                    f"{'─' * 22}\n"
+                )
+                if m.get("event_date"):
+                    message += f"📅 일시: <code>{_e(m['event_date'])}</code>\n"
+                if m.get("location"):
+                    message += f"📌 장소: {_e(m['location'])}\n"
+                if m.get("address"):
+                    message += f"🗺 주소: {_e(m['address'])}\n"
+                if m.get("prizes"):
+                    message += f"🎁 경품: {_e(m['prizes'])}\n"
+                message += f"\n🆔 <code>#{m['id']}</code>"
+                if m.get("source_url"):
+                    message += f"  ·  🔗 {_e(m['source_url'])}"
+
+                await discord_notify.send(message)
+                for user in users:
+                    uid = user["user_id"]
+                    ntype = f"{label}_{m['id']}"
+                    if await database.already_sent(m["id"], uid, ntype):
+                        continue
+                    try:
+                        await context.bot.send_message(
+                            chat_id=uid, text=message, parse_mode="HTML"
+                        )
+                        await database.mark_sent(m["id"], uid, ntype)
+                        await asyncio.sleep(0.05)
+                    except TelegramError as e:
+                        print(f"[meetup_remind] user {uid}: {e}")
+            except Exception as e:
+                print(f"[meetup_remind] meetup {m.get('id')}: {e}")
+
+
+async def job_expire_meetups(context: ContextTypes.DEFAULT_TYPE):
+    """event_date가 지난 밋업 자동 비활성화"""
+    count = await database.expire_past_meetups()
+    if count > 0:
+        print(f"[expire] {count}개 밋업 자동 만료 처리")

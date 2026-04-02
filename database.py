@@ -127,6 +127,23 @@ async def init_db():
                 created_at   TEXT DEFAULT (datetime('now'))
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS meetups (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                title       TEXT NOT NULL,
+                description TEXT,
+                location    TEXT,
+                address     TEXT,
+                event_date  TEXT,
+                event_end   TEXT,
+                organizer   TEXT,
+                prizes      TEXT,
+                source_url  TEXT,
+                added_by    INTEGER,
+                added_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active   INTEGER DEFAULT 1
+            )
+        """)
         await db.commit()
     await _load_seed()
 
@@ -494,3 +511,148 @@ async def delete_pin(pin_id: int):
     async with aiosqlite.connect(DB) as db:
         await db.execute("DELETE FROM pins WHERE id = ?", (pin_id,))
         await db.commit()
+
+
+# ─── Meetup operations ──────────────────────────────────────────────────────
+
+async def add_meetup(
+    title: str,
+    description: str,
+    location: str,
+    address: str,
+    event_date: Optional[str],
+    event_end: Optional[str],
+    organizer: str,
+    prizes: str,
+    source_url: str,
+    added_by: int,
+) -> int:
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            """INSERT INTO meetups (title, description, location, address, event_date, event_end, organizer, prizes, source_url, added_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (title, description, location, address, event_date, event_end, organizer, prizes, source_url, added_by),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_all_meetups() -> List[Dict]:
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM meetups WHERE is_active = 1 ORDER BY event_date ASC"
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_meetup_by_id(meetup_id: int) -> Optional[Dict]:
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM meetups WHERE id = ? AND is_active = 1", (meetup_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def get_upcoming_meetups(within_days: int = 7) -> List[Dict]:
+    now = datetime.now().isoformat()
+    until = (datetime.now() + timedelta(days=within_days)).isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT * FROM meetups WHERE is_active = 1
+               AND event_date IS NOT NULL
+               AND event_date >= ?
+               AND event_date <= ?
+               ORDER BY event_date ASC""",
+            (now, until),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_meetups_tomorrow() -> List[Dict]:
+    tomorrow = (datetime.now() + timedelta(days=1)).date().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM meetups WHERE is_active = 1 AND date(event_date) = ? ORDER BY event_date ASC",
+            (tomorrow,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_meetups_today() -> List[Dict]:
+    today = datetime.now().date().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM meetups WHERE is_active = 1 AND date(event_date) = ? ORDER BY event_date ASC",
+            (today,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_meetups_for_reminder(low_hours: float, high_hours: float) -> List[Dict]:
+    """event_date가 low_hours ~ high_hours 사이인 활성 밋업"""
+    now = datetime.now()
+    low = (now + timedelta(hours=low_hours)).isoformat()
+    high = (now + timedelta(hours=high_hours)).isoformat()
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT * FROM meetups WHERE is_active = 1
+               AND event_date IS NOT NULL
+               AND event_date >= ?
+               AND event_date <= ?""",
+            (low, high),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_meetup(meetup_id: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("UPDATE meetups SET is_active = 0 WHERE id = ?", (meetup_id,))
+        await db.commit()
+
+
+async def update_meetup_field(meetup_id: int, field: str, value):
+    allowed = {"title", "description", "location", "address", "event_date", "event_end", "organizer", "prizes", "source_url"}
+    if field not in allowed:
+        raise ValueError(f"허용되지 않은 필드: {field}")
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(f"UPDATE meetups SET {field} = ? WHERE id = ?", (value, meetup_id))
+        await db.commit()
+
+
+async def find_duplicate_meetup(title: str, source_url: str) -> Optional[Dict]:
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        if source_url:
+            async with db.execute(
+                "SELECT * FROM meetups WHERE is_active = 1 AND source_url = ?", (source_url,)
+            ) as cur:
+                row = await cur.fetchone()
+                if row:
+                    return dict(row)
+        import re
+        norm = lambda s: re.sub(r"[\s\W]", "", s).lower()
+        target = norm(title)
+        async with db.execute("SELECT * FROM meetups WHERE is_active = 1") as cur:
+            for row in await cur.fetchall():
+                if norm(row["title"]) == target:
+                    return dict(row)
+    return None
+
+
+async def expire_past_meetups() -> int:
+    """event_date가 지난 밋업을 자동 비활성화"""
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute(
+            "UPDATE meetups SET is_active = 0 WHERE is_active = 1 AND event_date IS NOT NULL AND event_date < ?",
+            (now,),
+        )
+        await db.commit()
+        return cur.rowcount

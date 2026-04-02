@@ -28,7 +28,7 @@ import config
 import database
 import analyzer
 import discord_notify
-from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders, job_expire_tasks, job_shoutout_check
+from scheduler import task_card, task_card_compact, job_morning_notification, job_evening_notification, job_deadline_reminders, job_expire_tasks, job_shoutout_check, job_meetup_reminders, job_expire_meetups
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -39,7 +39,9 @@ log = logging.getLogger(__name__)
 # ─── In-memory state ─────────────────────────────────────────────────────────
 # pending_tasks[user_id] = analyzed task dict (waiting for admin confirmation)
 pending_tasks: dict[int, dict] = {}
-# wizard_state[user_id] = {"mode": "add"|"edit", "step": str, "data": dict, "task_id": int}
+# pending_meetups[user_id] = analyzed meetup dict (waiting for admin confirmation)
+pending_meetups: dict[int, dict] = {}
+# wizard_state[user_id] = {"mode": "add"|"edit"|"add_meetup"|"edit_meetup", "step": str, "data": dict, "task_id": int}
 wizard_state: dict[int, dict] = {}
 
 EDIT_FIELDS = {
@@ -235,14 +237,22 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/task [ID] – 특정 숙제 상세 보기\n"
         "/on – 알림 켜기\n"
         "/off – 알림 끄기\n"
+        "\n📍 <b>밋업</b>\n"
+        "/meetups – 전체 밋업 목록\n"
+        "/meetup [ID] – 밋업 상세 보기\n"
+        "/upcoming – 7일 이내 예정 밋업\n"
     )
 
     admin_cmds = (
         "\n🔑 <b>관리자 명령어</b>\n"
         "링크 또는 텍스트 붙여넣기 → 자동 분석 후 추가\n"
+        "Luma 링크 붙여넣기 → 밋업으로 자동 분석\n"
         "/addtask – 수동으로 숙제 등록\n"
         "/edittask [ID] – 숙제 정보 수정\n"
         "/deltask [ID] – 숙제 삭제\n"
+        "/addmeetup – 수동 밋업 등록\n"
+        "/editmeetup [ID] – 밋업 수정\n"
+        "/delmeetup [ID] – 밋업 삭제\n"
         "/addadmin [user_id] – 관리자 추가\n"
         "/removeadmin [user_id] – 관리자 제거\n"
         "/admins – 관리자 목록\n"
@@ -685,6 +695,298 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("취소할 작업이 없습니다.")
 
 
+# ─── Meetup helpers & commands ────────────────────────────────────────────────
+
+MEETUPS_PER_PAGE = 5
+
+def meetup_card_compact(m: dict) -> str:
+    """밋업 목록용 간단 카드"""
+    lines = [f"📍 <b>{_esc(m['title'])}</b>"]
+    if m.get("event_date"):
+        lines.append(f"📅  일시  |  <code>{_esc(m['event_date'])}</code>")
+    if m.get("location"):
+        lines.append(f"📌  장소  |  {_esc(m['location'])}")
+    if m.get("prizes"):
+        lines.append(f"🎁  경품  |  {_esc(m['prizes'])}")
+    footer = f"🆔 <code>#{m['id']}</code>"
+    if m.get("source_url"):
+        footer += f"  ·  🔗 {_esc(m['source_url'])}"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def meetup_card(m: dict) -> str:
+    """밋업 상세 카드"""
+    lines = [f"📍 <b>{_esc(m['title'])}</b>"]
+    if m.get("event_date"):
+        date_str = _esc(m['event_date'])
+        if m.get("event_end"):
+            date_str += f" ~ {_esc(m['event_end'])}"
+        lines.append(f"📅  일시  |  <code>{date_str}</code>")
+    if m.get("location"):
+        lines.append(f"📌  장소  |  {_esc(m['location'])}")
+    if m.get("address"):
+        lines.append(f"🗺  주소  |  {_esc(m['address'])}")
+    if m.get("organizer"):
+        lines.append(f"👤  주최  |  {_esc(m['organizer'])}")
+    if m.get("description"):
+        lines.append(f"\n📝 {_esc(m['description'])}")
+    if m.get("prizes"):
+        lines.append(f"\n🎁  경품  |  {_esc(m['prizes'])}")
+    footer = f"\n🆔 <code>#{m['id']}</code>"
+    if m.get("source_url"):
+        footer += f"  ·  🔗 {_esc(m['source_url'])}"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def meetups_page_message(meetups: list, page: int) -> str:
+    total = len(meetups)
+    total_pages = max(1, (total + MEETUPS_PER_PAGE - 1) // MEETUPS_PER_PAGE)
+    page = max(0, min(page, total_pages - 1))
+    start = page * MEETUPS_PER_PAGE
+    chunk = meetups[start: start + MEETUPS_PER_PAGE]
+
+    lines = [f"<b>📍 밋업 목록</b> ({total}개)  <i>{page+1}/{total_pages} 페이지</i>\n"]
+    for m in chunk:
+        lines.append(SEP)
+        lines.append(meetup_card_compact(m))
+    lines.append(SEP)
+    return "\n".join(lines)
+
+
+def build_meetup_page_keyboard(meetups: list, page: int) -> Optional[InlineKeyboardMarkup]:
+    total = len(meetups)
+    total_pages = max(1, (total + MEETUPS_PER_PAGE - 1) // MEETUPS_PER_PAGE)
+    if total_pages <= 1:
+        return None
+    btns = []
+    if page > 0:
+        btns.append(InlineKeyboardButton("◀ 이전", callback_data=f"meetup_page:{page-1}"))
+    if page < total_pages - 1:
+        btns.append(InlineKeyboardButton("다음 ▶", callback_data=f"meetup_page:{page+1}"))
+    return InlineKeyboardMarkup([btns]) if btns else None
+
+
+def build_meetup_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ 추가", callback_data=f"confirm_meetup_add:{user_id}"),
+            InlineKeyboardButton("❌ 취소", callback_data=f"confirm_meetup_cancel:{user_id}"),
+        ]
+    ])
+
+
+def fmt_meetup_preview(data: dict) -> str:
+    lines = [
+        "📍 <b>밋업 분석 결과</b> – 아래 내용으로 추가할까요?\n",
+        f"📌 <b>제목:</b> {_esc(data.get('title', '(없음)'))}",
+    ]
+    if data.get("event_date"):
+        date_str = _esc(data['event_date'])
+        if data.get("event_end"):
+            date_str += f" ~ {_esc(data['event_end'])}"
+        lines.append(f"📅 <b>일시:</b> <code>{date_str}</code>")
+    if data.get("location"):
+        lines.append(f"📌 <b>장소:</b> {_esc(data['location'])}")
+    if data.get("address"):
+        lines.append(f"🗺 <b>주소:</b> {_esc(data['address'])}")
+    if data.get("organizer"):
+        lines.append(f"👤 <b>주최:</b> {_esc(data['organizer'])}")
+    if data.get("description"):
+        lines.append(f"📝 <b>설명:</b> {_esc(data['description'])}")
+    if data.get("prizes"):
+        lines.append(f"🎁 <b>경품:</b> {_esc(data['prizes'])}")
+    if data.get("source_url"):
+        lines.append(f"🔗 <b>링크:</b> {_esc(data['source_url'])}")
+    return "\n".join(lines)
+
+
+# ─── /meetups ─────────────────────────────────────────────────────────────────
+
+async def cmd_meetups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await ensure_registered(update)
+    meetups = await database.get_all_meetups()
+    if not meetups:
+        await update.message.reply_text("현재 등록된 밋업이 없습니다.")
+        return
+    msg = meetups_page_message(meetups, 0)
+    kbd = build_meetup_page_keyboard(meetups, 0)
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=kbd)
+
+
+async def cmd_meetup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await ensure_registered(update)
+    args = ctx.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("사용법: /meetup [밋업 ID]\n예) /meetup 1")
+        return
+    m = await database.get_meetup_by_id(int(args[0]))
+    if not m:
+        await update.message.reply_text("해당 ID의 밋업을 찾을 수 없습니다.")
+        return
+    await update.message.reply_text(meetup_card(m), parse_mode=ParseMode.HTML)
+
+
+async def cmd_upcoming(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await ensure_registered(update)
+    meetups = await database.get_upcoming_meetups(7)
+    if not meetups:
+        await update.message.reply_text("7일 이내 예정된 밋업이 없습니다.")
+        return
+    lines = [f"<b>📍 다가오는 밋업</b> (7일 이내, {len(meetups)}개)\n"]
+    for m in meetups:
+        lines.append(SEP)
+        lines.append(meetup_card_compact(m))
+    lines.append(SEP)
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+# ─── Admin: /addmeetup (수동) ─────────────────────────────────────────────────
+
+MEETUP_ADD_STEPS = ["title", "location", "address", "event_date", "organizer", "prizes", "source_url", "description"]
+MEETUP_ADD_PROMPTS = {
+    "title":       "📌 <b>밋업 제목</b>을 입력하세요.",
+    "location":    "📍 <b>장소명</b>을 입력하세요.\n(예: 강남 섬유센터 2F, 없으면 <code>-</code>)",
+    "address":     "🗺 <b>상세 주소</b>를 입력하세요.\n(없으면 <code>-</code>)",
+    "event_date":  "📅 <b>일시</b>를 입력하세요.\n형식: <code>YYYY-MM-DD HH:MM</code> (예: 2026-04-14 14:00)\n(없으면 <code>-</code>)",
+    "organizer":   "👤 <b>주최자</b>를 입력하세요.\n(없으면 <code>-</code>)",
+    "prizes":      "🎁 <b>경품/상품</b>을 입력하세요.\n(없으면 <code>-</code>)",
+    "source_url":  "🔗 <b>링크</b>를 입력하세요.\n(없으면 <code>-</code>)",
+    "description": "📝 <b>설명</b>을 입력하세요.\n(없으면 <code>-</code>)",
+}
+
+
+async def cmd_addmeetup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    wizard_state[u.id] = {"mode": "add_meetup", "step": "title", "data": {}}
+    await update.message.reply_text(
+        "✍️ <b>수동 밋업 등록을 시작합니다.</b>\n\n" + MEETUP_ADD_PROMPTS["title"],
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def _handle_add_meetup_wizard(update: Update, u, text: str):
+    state = wizard_state[u.id]
+    step = state["step"]
+    data = state["data"]
+
+    value = "" if text.strip() == "-" else text.strip()
+    data[step] = value
+
+    idx = MEETUP_ADD_STEPS.index(step)
+    if idx + 1 < len(MEETUP_ADD_STEPS):
+        next_step = MEETUP_ADD_STEPS[idx + 1]
+        state["step"] = next_step
+        await update.message.reply_text(MEETUP_ADD_PROMPTS[next_step], parse_mode=ParseMode.HTML)
+    else:
+        wizard_state.pop(u.id)
+        preview_data = {
+            "is_valid": True,
+            "title":       data.get("title", ""),
+            "description": data.get("description", ""),
+            "location":    data.get("location", ""),
+            "address":     data.get("address", ""),
+            "event_date":  data.get("event_date", ""),
+            "event_end":   "",
+            "organizer":   data.get("organizer", ""),
+            "prizes":      data.get("prizes", ""),
+            "source_url":  data.get("source_url", ""),
+        }
+        pending_meetups[u.id] = preview_data
+        await update.message.reply_text(
+            fmt_meetup_preview(preview_data),
+            parse_mode=ParseMode.HTML,
+            reply_markup=build_meetup_confirm_keyboard(u.id),
+        )
+
+
+# ─── Admin: /editmeetup ──────────────────────────────────────────────────────
+
+MEETUP_EDIT_FIELDS = {
+    "title":       ("제목",      "새 제목을 입력하세요."),
+    "description": ("설명",      "새 설명을 입력하세요."),
+    "location":    ("장소",      "새 장소명을 입력하세요."),
+    "address":     ("주소",      "새 주소를 입력하세요."),
+    "event_date":  ("일시",      "새 일시를 입력하세요.\n형식: `YYYY-MM-DD HH:MM`"),
+    "event_end":   ("종료 시간", "새 종료 시간을 입력하세요.\n형식: `YYYY-MM-DD HH:MM`"),
+    "organizer":   ("주최자",    "새 주최자를 입력하세요."),
+    "prizes":      ("경품",      "새 경품 내용을 입력하세요."),
+    "source_url":  ("링크",      "새 링크를 입력하세요."),
+}
+
+
+def build_meetup_edit_keyboard(meetup_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton("📌 제목",    callback_data=f"meditfield:{meetup_id}:title"),
+         InlineKeyboardButton("📍 장소",    callback_data=f"meditfield:{meetup_id}:location")],
+        [InlineKeyboardButton("🗺 주소",    callback_data=f"meditfield:{meetup_id}:address"),
+         InlineKeyboardButton("📅 일시",    callback_data=f"meditfield:{meetup_id}:event_date")],
+        [InlineKeyboardButton("👤 주최자",  callback_data=f"meditfield:{meetup_id}:organizer"),
+         InlineKeyboardButton("🎁 경품",    callback_data=f"meditfield:{meetup_id}:prizes")],
+        [InlineKeyboardButton("📝 설명",    callback_data=f"meditfield:{meetup_id}:description"),
+         InlineKeyboardButton("🔗 링크",    callback_data=f"meditfield:{meetup_id}:source_url")],
+        [InlineKeyboardButton("❌ 취소",    callback_data=f"meditfield:{meetup_id}:cancel")],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+async def cmd_editmeetup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    args = ctx.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("사용법: /editmeetup [ID]\n예) /editmeetup 1")
+        return
+    meetup_id = int(args[0])
+    m = await database.get_meetup_by_id(meetup_id)
+    if not m:
+        await update.message.reply_text(f"❌ ID {meetup_id} 밋업을 찾을 수 없습니다.")
+        return
+    preview = meetup_card(m) + "\n\n수정할 항목을 선택하세요:"
+    await update.message.reply_text(preview, parse_mode=ParseMode.HTML, reply_markup=build_meetup_edit_keyboard(meetup_id))
+
+
+async def _handle_edit_meetup_wizard(update: Update, u, text: str):
+    state = wizard_state[u.id]
+    meetup_id = state["task_id"]
+    field = state["field"]
+    wizard_state.pop(u.id)
+
+    value = None if text.strip() == "-" else text.strip()
+    await database.update_meetup_field(meetup_id, field, value)
+    label = MEETUP_EDIT_FIELDS[field][0]
+    await update.message.reply_text(
+        f"✅ 밋업 <b>#{meetup_id}</b>의 <b>{label}</b>이(가) 수정되었습니다.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── Admin: /delmeetup ───────────────────────────────────────────────────────
+
+async def cmd_delmeetup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    if not await is_admin(u.id):
+        await update.message.reply_text("❌ 관리자만 사용할 수 있습니다.")
+        return
+    args = ctx.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("사용법: /delmeetup [밋업 ID]\n예) /delmeetup 1")
+        return
+    meetup_id = int(args[0])
+    m = await database.get_meetup_by_id(meetup_id)
+    if not m:
+        await update.message.reply_text("해당 ID의 밋업을 찾을 수 없습니다.")
+        return
+    await database.delete_meetup(meetup_id)
+    await update.message.reply_text(f"✅ 밋업 <b>{_esc(m['title'])}</b> (ID: {meetup_id}) 삭제 완료", parse_mode=ParseMode.HTML)
+
+
 # ─── Admin: text/URL analysis flow ───────────────────────────────────────────
 
 # ─── /addtask – 수동 등록 ─────────────────────────────────────────────────────
@@ -938,11 +1240,45 @@ async def handle_admin_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await _handle_add_wizard(update, u, text)
         elif state["mode"] == "edit":
             await _handle_edit_wizard(update, u, text)
+        elif state["mode"] == "add_meetup":
+            await _handle_add_meetup_wizard(update, u, text)
+        elif state["mode"] == "edit_meetup":
+            await _handle_edit_meetup_wizard(update, u, text)
         elif state["mode"] == "broadcast":
             wizard_state.pop(u.id)
             await _do_broadcast(update, ctx, text)
         return
 
+    # Luma URL이면 밋업으로 분석
+    if analyzer.is_url(text) and analyzer.is_luma_url(text):
+        analyzing_msg = await update.message.reply_text("📍 밋업 정보를 분석하는 중입니다... 잠시만 기다려주세요.")
+        try:
+            result = await analyzer.analyze_meetup(text)
+        except Exception as e:
+            log.error(f"[analyze_meetup] API 오류: {e}")
+            await analyzing_msg.edit_text(f"❌ 밋업 분석 중 오류가 발생했습니다.\n<code>{e}</code>", parse_mode=ParseMode.HTML)
+            return
+
+        if not result or not result.get("is_valid"):
+            err = result.get("error", "밋업 정보를 찾을 수 없습니다.") if result else "분석 실패"
+            await analyzing_msg.edit_text(f"❌ {err}")
+            return
+
+        pending_meetups[u.id] = result
+        preview = fmt_meetup_preview(result)
+        try:
+            await analyzing_msg.delete()
+            await update.message.reply_text(
+                preview,
+                parse_mode=ParseMode.HTML,
+                reply_markup=build_meetup_confirm_keyboard(u.id),
+            )
+        except Exception as e:
+            log.error(f"[meetup preview] send failed: {e}")
+            await update.message.reply_text(f"⚠️ 밋업 미리보기 전송 오류\n<code>{e}</code>", parse_mode=ParseMode.HTML)
+        return
+
+    # 일반 텍스트/URL → 숙제 분석
     analyzing_msg = await update.message.reply_text("🔍 내용을 분석하는 중입니다... 잠시만 기다려주세요.")
 
     try:
@@ -1065,6 +1401,100 @@ async def callback_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML,
     )
 
+
+
+# ─── Meetup callback handlers ────────────────────────────────────────────────
+
+async def callback_meetup_page(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split(":")[1])
+    meetups = await database.get_all_meetups()
+    msg = meetups_page_message(meetups, page)
+    kbd = build_meetup_page_keyboard(meetups, page)
+    await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=kbd)
+
+
+async def callback_meetup_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # "confirm_meetup_add:{user_id}" or "confirm_meetup_cancel:{user_id}"
+    action, uid_str = data.rsplit(":", 1)
+    uid = int(uid_str)
+
+    if query.from_user.id != uid:
+        await query.answer("이 버튼은 본인만 누를 수 있습니다.", show_alert=True)
+        return
+
+    if action == "confirm_meetup_cancel":
+        pending_meetups.pop(uid, None)
+        await query.edit_message_text("❌ 밋업 추가가 취소되었습니다.")
+        return
+
+    # confirm_meetup_add
+    meetup_data = pending_meetups.pop(uid, None)
+    if not meetup_data:
+        await query.edit_message_text("⚠️ 이미 처리된 요청입니다.")
+        return
+
+    # 중복 체크
+    dup = await database.find_duplicate_meetup(
+        title=meetup_data.get("title", ""),
+        source_url=meetup_data.get("source_url", ""),
+    )
+    if dup:
+        await query.edit_message_text(
+            f"⚠️ <b>중복 밋업 감지!</b>\n\n"
+            f"이미 동일한 밋업이 등록되어 있습니다.\n"
+            f"📍 <b>{_esc(dup['title'])}</b>\n"
+            f"🆔 ID: <code>#{dup['id']}</code>\n\n"
+            f"추가를 취소했습니다.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    meetup_id = await database.add_meetup(
+        title=meetup_data.get("title", "제목 없음"),
+        description=meetup_data.get("description", ""),
+        location=meetup_data.get("location", ""),
+        address=meetup_data.get("address", ""),
+        event_date=meetup_data.get("event_date"),
+        event_end=meetup_data.get("event_end"),
+        organizer=meetup_data.get("organizer", ""),
+        prizes=meetup_data.get("prizes") or "",
+        source_url=meetup_data.get("source_url", ""),
+        added_by=uid,
+    )
+    await query.edit_message_text(
+        f"✅ 밋업이 추가되었습니다!\n"
+        f"📍 <b>{_esc(meetup_data.get('title'))}</b>\n"
+        f"🆔 ID: <code>{meetup_id}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def callback_meditfield(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """밋업 수정 필드 선택 콜백"""
+    query = update.callback_query
+    await query.answer()
+    _, meetup_id_str, field = query.data.split(":", 2)
+
+    if field == "cancel":
+        wizard_state.pop(query.from_user.id, None)
+        await query.edit_message_text("❌ 수정이 취소되었습니다.")
+        return
+
+    meetup_id = int(meetup_id_str)
+    if not await is_admin(query.from_user.id):
+        await query.answer("관리자만 수정할 수 있습니다.", show_alert=True)
+        return
+
+    label, prompt = MEETUP_EDIT_FIELDS[field]
+    wizard_state[query.from_user.id] = {"mode": "edit_meetup", "task_id": meetup_id, "field": field}
+    await query.edit_message_text(
+        f"✏️ 밋업 <b>#{meetup_id} – {label} 수정</b>\n\n{prompt}\n\n(취소하려면 /cancel 입력)",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # ─── 유료 기능: 샤라웃 / 배너 / 핀 ─────────────────────────────────────────────
@@ -1414,6 +1844,14 @@ def main():
     app.add_handler(CommandHandler("pins", cmd_pins))
     app.add_handler(CommandHandler("delpin", cmd_delpin))
 
+    # Meetup commands
+    app.add_handler(CommandHandler("meetups", cmd_meetups))
+    app.add_handler(CommandHandler("meetup", cmd_meetup))
+    app.add_handler(CommandHandler("upcoming", cmd_upcoming))
+    app.add_handler(CommandHandler("addmeetup", cmd_addmeetup))
+    app.add_handler(CommandHandler("editmeetup", cmd_editmeetup))
+    app.add_handler(CommandHandler("delmeetup", cmd_delmeetup))
+
     # Admin: 포워드된 메시지 → 채널 등록 (포워드 메시지만 처리)
     app.add_handler(
         MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded_channel)
@@ -1431,6 +1869,10 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_editfield, pattern=r"^editfield:\d+:\w+$"))
     app.add_handler(CallbackQueryHandler(callback_confirm, pattern=r"^confirm_(add|cancel):\d+$"))
     app.add_handler(CallbackQueryHandler(callback_regchat, pattern=r"^regchat:"))
+    # Meetup callbacks
+    app.add_handler(CallbackQueryHandler(callback_meetup_page, pattern=r"^meetup_page:\d+$"))
+    app.add_handler(CallbackQueryHandler(callback_meetup_confirm, pattern=r"^confirm_meetup_(add|cancel):\d+$"))
+    app.add_handler(CallbackQueryHandler(callback_meditfield, pattern=r"^meditfield:\d+:\w+$"))
 
     # JobQueue 스케줄러 (봇 내장 – asyncio 이벤트 루프와 통합됨)
     import datetime as dt
@@ -1447,6 +1889,10 @@ def main():
     jq.run_repeating(job_deadline_reminders, interval=900, first=60, name="deadline_reminders")
     # 만료 숙제 자동 정리 – 1시간마다
     jq.run_repeating(job_expire_tasks, interval=3600, first=30, name="expire_tasks")
+    # 밋업 리마인더 – 15분마다
+    jq.run_repeating(job_meetup_reminders, interval=900, first=90, name="meetup_reminders")
+    # 만료 밋업 자동 정리 – 1시간마다
+    jq.run_repeating(job_expire_meetups, interval=3600, first=45, name="expire_meetups")
     # 샤라웃 체크 – 매 분마다
     jq.run_repeating(job_shoutout_check, interval=60, first=10, name="shoutout_check")
 

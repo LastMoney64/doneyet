@@ -41,6 +41,10 @@ def is_telegram_url(url: str) -> bool:
     return bool(re.search(r"t\.me/", url))
 
 
+def is_luma_url(url: str) -> bool:
+    return bool(re.search(r"(lu\.ma|luma\.com)/", url))
+
+
 async def fetch_url_content(url: str) -> Optional[str]:
     headers = {
         "User-Agent": (
@@ -110,6 +114,90 @@ def parse_deadline(deadline_str: Optional[str]) -> Optional[datetime]:
         except ValueError:
             continue
     return None
+
+
+MEETUP_ANALYSIS_PROMPT = """아래 내용을 분석해서 밋업/오프라인 이벤트 정보를 추출해주세요.
+
+내용:
+{content}
+
+다음 JSON 형식으로만 응답하세요 (다른 텍스트 절대 포함하지 마세요):
+{{
+  "is_valid": true,
+  "title": "밋업/이벤트 제목 (간결하게)",
+  "description": "이벤트 설명 (2-3줄, 주요 내용/프로그램)",
+  "location": "장소명 (예: 강남 섬유센터 2F)",
+  "address": "상세 주소 (예: 서울 강남구 테헤란로 518)",
+  "event_date": "시작 일시 (YYYY-MM-DD HH:MM 형식, 없으면 null, 연도 불명확 시 {current_year} 기준)",
+  "event_end": "종료 일시 (YYYY-MM-DD HH:MM 형식, 없으면 null)",
+  "organizer": "주최자/주관 (없으면 null)",
+  "prizes": "경품/상품/혜택 (없으면 null)"
+}}
+
+밋업/오프라인 이벤트가 아닌 경우 is_valid를 false로 설정하세요."""
+
+
+def _call_claude_meetup_sync(content: str) -> Optional[Dict]:
+    """밋업 분석용 동기 Claude API 호출 (스레드에서 실행됨)"""
+    current_year = datetime.now().year
+    prompt = MEETUP_ANALYSIS_PROMPT.format(content=content, current_year=current_year)
+    try:
+        message = _client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = message.content[0].text.strip()
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if m:
+            return json.loads(m.group())
+    except Exception as e:
+        print(f"[claude-meetup] {e}")
+    return None
+
+
+async def _call_claude_meetup(content: str) -> Optional[Dict]:
+    """밋업 분석 - 이벤트 루프 블로킹 방지"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _call_claude_meetup_sync, content)
+
+
+async def analyze_meetup(text: str) -> Optional[Dict]:
+    """URL 또는 텍스트를 받아 밋업 정보 반환.
+
+    반환 형식:
+    {
+        "is_valid": bool,
+        "title": str,
+        "description": str,
+        "location": str,
+        "address": str,
+        "event_date": str | None,   (YYYY-MM-DD HH:MM)
+        "event_end": str | None,
+        "organizer": str | None,
+        "prizes": str | None,
+        "source_url": str,
+    }
+    """
+    source_url = ""
+    content = text.strip()
+
+    if len(content) > 6000:
+        content = content[:6000]
+
+    if is_url(content):
+        source_url = content
+        fetched = await fetch_url_content(content)
+        if not fetched:
+            return {"is_valid": False, "error": "URL 내용을 가져올 수 없습니다. 텍스트로 직접 붙여넣기 해주세요."}
+        content = f"[출처: {source_url}]\n\n{fetched}"
+
+    result = await _call_claude_meetup(content)
+    if not result:
+        return {"is_valid": False, "error": "밋업 분석에 실패했습니다. 다시 시도해주세요."}
+
+    result["source_url"] = source_url or ""
+    return result
 
 
 async def analyze_input(text: str) -> Optional[Dict]:
