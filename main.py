@@ -94,7 +94,14 @@ def fmt_task_preview(data: dict) -> str:
         f"📋 <b>참여 방법:</b>\n{_esc(data.get('how_to_do', '(없음)'))}",
     ]
     if data.get("deadline_str"):
-        lines.append(f"⏰ <b>마감:</b> <code>{_esc(data['deadline_str'])}</code>")
+        deadline_display = f"⏰ <b>마감:</b> <code>{_esc(data['deadline_str'])}</code>"
+        # 마감일이 과거인지 체크
+        dl = data.get("deadline")
+        if dl:
+            dl_dt = datetime.fromisoformat(str(dl)) if isinstance(dl, str) else dl
+            if dl_dt < datetime.now():
+                deadline_display += "\n⚠️ <b>경고: 마감일이 과거입니다! 연도를 확인하세요.</b>\n추가 후 /edittask [ID]로 수정 가능합니다."
+        lines.append(deadline_display)
     else:
         lines.append("⏰ <b>마감:</b> 없음")
     if data.get("prizes"):
