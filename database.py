@@ -1,11 +1,18 @@
 import aiosqlite
 import json
 import os
+import zoneinfo
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 import config
 
 DB = config.DATABASE_PATH
+_KST = zoneinfo.ZoneInfo("Asia/Seoul")
+
+
+def _now() -> datetime:
+    """KST 기준 현재 시각 (naive datetime – DB 저장값과 동일 기준)"""
+    return datetime.now(_KST).replace(tzinfo=None)
 
 
 async def _load_seed():
@@ -20,7 +27,7 @@ async def _load_seed():
         row = await db.execute("SELECT COUNT(*) FROM tasks")
         count = (await row.fetchone())[0]
         if count == 0:
-            now = datetime.now().isoformat()
+            now = _now().isoformat()
             restored = 0
             for t in seed.get("tasks", []):
                 if not t.get("is_active", 1):
@@ -255,7 +262,7 @@ async def get_task_by_id(task_id: int) -> Optional[Dict]:
 
 async def expire_past_tasks() -> int:
     """마감이 지난 숙제를 자동으로 비활성화. 처리된 건수 반환"""
-    now = datetime.now().isoformat()
+    now = _now().isoformat()
     async with aiosqlite.connect(DB) as db:
         cur = await db.execute(
             "UPDATE tasks SET is_active = 0 WHERE is_active = 1 AND deadline IS NOT NULL AND deadline < ?",
@@ -296,7 +303,7 @@ async def get_all_tasks() -> List[Dict]:
 
 
 async def get_today_tasks() -> List[Dict]:
-    today = datetime.now().date().isoformat()
+    today = _now().date().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -307,7 +314,7 @@ async def get_today_tasks() -> List[Dict]:
 
 
 async def get_urgent_tasks(within_hours: int = 24) -> List[Dict]:
-    now = datetime.now()
+    now = _now()
     until = (now + timedelta(hours=within_hours)).isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
@@ -324,7 +331,7 @@ async def get_urgent_tasks(within_hours: int = 24) -> List[Dict]:
 
 async def get_tasks_for_deadline_check(low_hours: float, high_hours: float) -> List[Dict]:
     """마감이 low_hours ~ high_hours 사이인 활성 태스크"""
-    now = datetime.now()
+    now = _now()
     low = (now + timedelta(hours=low_hours)).isoformat()
     high = (now + timedelta(hours=high_hours)).isoformat()
     async with aiosqlite.connect(DB) as db:
@@ -423,7 +430,7 @@ async def add_shoutout(text: str, schedule_time: str, active_until: Optional[dat
 
 
 async def get_active_shoutouts() -> List[Dict]:
-    now = datetime.now().isoformat()
+    now = _now().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -435,7 +442,7 @@ async def get_active_shoutouts() -> List[Dict]:
 
 async def get_shoutouts_for_time(hhmm: str) -> List[Dict]:
     """현재 HH:MM에 발송해야 할 활성 샤라웃"""
-    now = datetime.now().isoformat()
+    now = _now().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -466,7 +473,7 @@ async def add_banner(text: str, active_until: Optional[datetime]) -> int:
 
 
 async def get_active_banners() -> List[Dict]:
-    now = datetime.now().isoformat()
+    now = _now().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -497,7 +504,7 @@ async def add_pin(text: str, active_until: Optional[datetime]) -> int:
 
 
 async def get_active_pins() -> List[Dict]:
-    now = datetime.now().isoformat()
+    now = _now().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -557,8 +564,8 @@ async def get_meetup_by_id(meetup_id: int) -> Optional[Dict]:
 
 
 async def get_upcoming_meetups(within_days: int = 7) -> List[Dict]:
-    now = datetime.now().isoformat()
-    until = (datetime.now() + timedelta(days=within_days)).isoformat()
+    now = _now().isoformat()
+    until = (_now() + timedelta(days=within_days)).isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -573,7 +580,7 @@ async def get_upcoming_meetups(within_days: int = 7) -> List[Dict]:
 
 
 async def get_meetups_tomorrow() -> List[Dict]:
-    tomorrow = (datetime.now() + timedelta(days=1)).date().isoformat()
+    tomorrow = (_now() + timedelta(days=1)).date().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -584,7 +591,7 @@ async def get_meetups_tomorrow() -> List[Dict]:
 
 
 async def get_meetups_today() -> List[Dict]:
-    today = datetime.now().date().isoformat()
+    today = _now().date().isoformat()
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -596,7 +603,7 @@ async def get_meetups_today() -> List[Dict]:
 
 async def get_meetups_for_reminder(low_hours: float, high_hours: float) -> List[Dict]:
     """event_date가 low_hours ~ high_hours 사이인 활성 밋업"""
-    now = datetime.now()
+    now = _now()
     low = (now + timedelta(hours=low_hours)).isoformat()
     high = (now + timedelta(hours=high_hours)).isoformat()
     async with aiosqlite.connect(DB) as db:
@@ -648,7 +655,7 @@ async def find_duplicate_meetup(title: str, source_url: str) -> Optional[Dict]:
 
 async def expire_past_meetups() -> int:
     """event_date가 지난 밋업을 자동 비활성화"""
-    now = datetime.now().isoformat()
+    now = _now().isoformat()
     async with aiosqlite.connect(DB) as db:
         cur = await db.execute(
             "UPDATE meetups SET is_active = 0 WHERE is_active = 1 AND event_date IS NOT NULL AND event_date < ?",
